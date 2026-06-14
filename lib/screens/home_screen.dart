@@ -33,11 +33,18 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool get _calendarAvailable =>
+      widget.calendarSync?.connection.value.authorized ?? false;
+
   Future<void> _openAddSheet() async {
-    final result = await showAddTaskSheet(context);
+    final result = await showAddTaskSheet(
+      context,
+      calendarAvailable: _calendarAvailable,
+    );
     if (result == null) return;
+    final newId = TaskStore.newId();
     widget.store.add(Task(
-      id: TaskStore.newId(),
+      id: newId,
       title: result.title,
       note: result.note,
       dueAt: result.dueAt,
@@ -46,6 +53,17 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.notifications != null &&
         mounted) {
       await widget.notifications!.maybeRequestBatteryExemption(context);
+    }
+    if (result.addToCalendar) {
+      final ok = await widget.store.exportTaskToCalendar(newId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok
+              ? 'Added to Google Calendar'
+              : 'Could not add to Google Calendar'),
+        ),
+      );
     }
   }
 
@@ -73,6 +91,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _onExport(Task task) async {
+    final ok = await widget.store.exportTaskToCalendar(task.id);
+    if (!mounted) return;
+    final exported = task.calendarEventId != null;
+    final msg = ok
+        ? (exported ? 'Calendar event updated' : 'Added to Google Calendar')
+        : 'Could not update Google Calendar';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _onRemoveFromCalendar(Task task) async {
+    final ok = await widget.store.removeTaskFromCalendar(task.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Removed from Google Calendar'
+          : 'Not linked to Google Calendar'),
+    ));
+  }
+
   void _onDelete(Task task) {
     final snapshot = Task(
       id: task.id,
@@ -95,7 +133,11 @@ class _HomeScreenState extends State<HomeScreen> {
       s.length <= max ? s : '${s.substring(0, max - 1)}…';
 
   Future<void> _openEditSheet(Task task) async {
-    final result = await showAddTaskSheet(context, initial: task);
+    final result = await showAddTaskSheet(
+      context,
+      initial: task,
+      calendarAvailable: _calendarAvailable,
+    );
     if (result == null) return;
     widget.store.update(
       id: task.id,
@@ -206,6 +248,9 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => _openEditSheet(task),
             onToggle: () => _onToggle(task),
             onDelete: () => _onDelete(task),
+            calendarSync: widget.calendarSync,
+            onExport: () => _onExport(task),
+            onRemoveFromCalendar: () => _onRemoveFromCalendar(task),
           );
         },
       ),
@@ -445,12 +490,18 @@ class _TaskRowDismissible extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final CalendarSyncService? calendarSync;
+  final VoidCallback onExport;
+  final VoidCallback onRemoveFromCalendar;
   const _TaskRowDismissible({
     required this.task,
     required this.now,
     required this.onTap,
     required this.onToggle,
     required this.onDelete,
+    required this.onExport,
+    required this.onRemoveFromCalendar,
+    this.calendarSync,
   });
 
   @override
@@ -467,13 +518,158 @@ class _TaskRowDismissible extends StatelessWidget {
         builder: (context, t, child) => Opacity(opacity: t, child: child),
         child: InkWell(
           onTap: onTap,
-          child: TaskCard(
+          child: _TaskRowContent(
             task: task,
-            onToggle: onToggle,
             now: now,
+            onToggle: onToggle,
+            calendarSync: calendarSync,
+            onExport: onExport,
+            onRemoveFromCalendar: onRemoveFromCalendar,
           ),
         ),
       ),
+    );
+  }
+}
+
+/// TaskCard + the per-row calendar trailing (indicator + menu), rebuilt when
+/// the CalendarSyncService's connection state changes so menu visibility is
+/// always in sync with authorization.
+class _TaskRowContent extends StatelessWidget {
+  final Task task;
+  final DateTime now;
+  final VoidCallback onToggle;
+  final CalendarSyncService? calendarSync;
+  final VoidCallback onExport;
+  final VoidCallback onRemoveFromCalendar;
+  const _TaskRowContent({
+    required this.task,
+    required this.now,
+    required this.onToggle,
+    required this.calendarSync,
+    required this.onExport,
+    required this.onRemoveFromCalendar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = calendarSync;
+    if (sync == null) {
+      return TaskCard(task: task, onToggle: onToggle, now: now);
+    }
+    return ValueListenableBuilder<CalendarConnection>(
+      valueListenable: sync.connection,
+      builder: (context, conn, _) {
+        final isExported = task.calendarEventId != null;
+        final hasDue = task.effectiveDueAt != null;
+        // Export needs a due time + authorization. Update/Remove only need
+        // authorization — the event already exists on the server.
+        final canExport = conn.authorized && hasDue && !isExported;
+        final canManageExisting = conn.authorized && isExported;
+        if (!isExported && !canExport && !canManageExisting) {
+          return TaskCard(task: task, onToggle: onToggle, now: now);
+        }
+        return TaskCard(
+          task: task,
+          onToggle: onToggle,
+          now: now,
+          trailing: _CalendarRowTrailing(
+            isExported: isExported,
+            canExport: canExport,
+            canManageExisting: canManageExisting,
+            onExport: onExport,
+            onRemoveFromCalendar: onRemoveFromCalendar,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CalendarRowTrailing extends StatelessWidget {
+  final bool isExported;
+  final bool canExport;
+  final bool canManageExisting;
+  final VoidCallback onExport;
+  final VoidCallback onRemoveFromCalendar;
+  const _CalendarRowTrailing({
+    required this.isExported,
+    required this.canExport,
+    required this.canManageExisting,
+    required this.onExport,
+    required this.onRemoveFromCalendar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final children = <Widget>[];
+    if (isExported) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(left: AppSpacing.sm),
+        child: Tooltip(
+          message: 'Exported to Google Calendar',
+          child: Icon(
+            Icons.event_available_rounded,
+            size: 18,
+            color: scheme.primary,
+          ),
+        ),
+      ));
+    }
+    final showMenu = canExport || canManageExisting;
+    if (showMenu) {
+      children.add(PopupMenuButton<String>(
+        tooltip: 'Calendar actions',
+        icon: const Icon(Icons.more_vert),
+        onSelected: (v) {
+          switch (v) {
+            case 'export':
+            case 'update':
+              onExport();
+              break;
+            case 'remove':
+              onRemoveFromCalendar();
+              break;
+          }
+        },
+        itemBuilder: (ctx) {
+          if (canManageExisting) {
+            return const [
+              PopupMenuItem<String>(
+                value: 'update',
+                child: ListTile(
+                  leading: Icon(Icons.sync),
+                  title: Text('Update in calendar'),
+                  dense: true,
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'remove',
+                child: ListTile(
+                  leading: Icon(Icons.event_busy_outlined),
+                  title: Text('Remove from calendar'),
+                  dense: true,
+                ),
+              ),
+            ];
+          }
+          return const [
+            PopupMenuItem<String>(
+              value: 'export',
+              child: ListTile(
+                leading: Icon(Icons.event_available_outlined),
+                title: Text('Export to calendar'),
+                dense: true,
+              ),
+            ),
+          ];
+        },
+      ));
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: children,
     );
   }
 }

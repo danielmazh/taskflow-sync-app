@@ -11,7 +11,16 @@ class TaskCard extends StatelessWidget {
   final Task task;
   final VoidCallback? onToggle;
   final DateTime? now;
-  const TaskCard({super.key, required this.task, this.onToggle, this.now});
+  /// Optional trailing widget rendered after the overdue indicator. Used by
+  /// the home screen to surface the per-row calendar status + actions menu.
+  final Widget? trailing;
+  const TaskCard({
+    super.key,
+    required this.task,
+    this.onToggle,
+    this.now,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +114,7 @@ class TaskCard extends StatelessWidget {
                   semanticLabel: 'Overdue',
                 ),
               ),
+            ?trailing,
           ],
         ),
       ),

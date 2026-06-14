@@ -7,12 +7,23 @@ class AddTaskSheetResult {
   final String title;
   final String? note;
   final DateTime? dueAt;
-  const AddTaskSheetResult({required this.title, this.note, this.dueAt});
+  /// User asked to export this new task to Google Calendar. Only ever true
+  /// from the add (not edit) flow and only when calendar export was offered
+  /// (connected + authorized + a due time was selected). Home handles the
+  /// actual export call once the task exists.
+  final bool addToCalendar;
+  const AddTaskSheetResult({
+    required this.title,
+    this.note,
+    this.dueAt,
+    this.addToCalendar = false,
+  });
 }
 
 Future<AddTaskSheetResult?> showAddTaskSheet(
   BuildContext context, {
   Task? initial,
+  bool calendarAvailable = false,
 }) {
   return showModalBottomSheet<AddTaskSheetResult>(
     context: context,
@@ -25,7 +36,10 @@ Future<AddTaskSheetResult?> showAddTaskSheet(
       ),
       child: SafeArea(
         top: false,
-        child: _AddTaskSheet(initial: initial),
+        child: _AddTaskSheet(
+          initial: initial,
+          calendarAvailable: calendarAvailable,
+        ),
       ),
     ),
   );
@@ -33,7 +47,8 @@ Future<AddTaskSheetResult?> showAddTaskSheet(
 
 class _AddTaskSheet extends StatefulWidget {
   final Task? initial;
-  const _AddTaskSheet({this.initial});
+  final bool calendarAvailable;
+  const _AddTaskSheet({this.initial, this.calendarAvailable = false});
 
   @override
   State<_AddTaskSheet> createState() => _AddTaskSheetState();
@@ -44,7 +59,10 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
   late final TextEditingController _noteCtrl;
   late final FocusNode _titleFocus;
   DateTime? _dueAt;
+  bool _addToCalendar = false;
   bool get _isEdit => widget.initial != null;
+  bool get _showCalendarCheckbox =>
+      !_isEdit && widget.calendarAvailable && _dueAt != null;
 
   @override
   void initState() {
@@ -122,6 +140,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
         title: title,
         note: note.isEmpty ? null : note,
         dueAt: _dueAt,
+        addToCalendar: _showCalendarCheckbox && _addToCalendar,
       ),
     );
   }
@@ -217,6 +236,18 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                   ],
                 ),
               ),
+            ),
+          ],
+          if (_showCalendarCheckbox) ...[
+            const SizedBox(height: 4),
+            CheckboxListTile(
+              value: _addToCalendar,
+              onChanged: (v) => setState(() => _addToCalendar = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Add to Google Calendar'),
+              secondary: const Icon(Icons.event_available_outlined),
             ),
           ],
           const SizedBox(height: 16),
