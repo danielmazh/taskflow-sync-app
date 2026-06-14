@@ -159,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('TaskFlow Sync'),
         actions: [
           if (widget.calendarSync != null)
-            _CalendarMenuButton(service: widget.calendarSync!),
+            _AccountButton(service: widget.calendarSync!),
           if (widget.themeController != null)
             _ThemeMenuButton(controller: widget.themeController!),
           IconButton(
@@ -753,46 +753,36 @@ class _EmptyState extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Google Calendar connection menu
+// Google account button (Phase 4c)
 // ─────────────────────────────────────────────────────────────────────────────
-class _CalendarMenuButton extends StatelessWidget {
+
+/// AppBar account button. Signed-out: generic icon → tap = `connect()`.
+/// Signed-in: avatar (photoUrl, fallback to initials) → tap opens a menu
+/// showing the user, the Google Calendar status, and a Disconnect action.
+class _AccountButton extends StatelessWidget {
   final CalendarSyncService service;
-  const _CalendarMenuButton({required this.service});
+  const _AccountButton({required this.service});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return ValueListenableBuilder<CalendarConnection>(
       valueListenable: service.connection,
       builder: (context, conn, _) {
-        final iconColor = conn.authorized ? scheme.primary : scheme.onSurfaceVariant;
+        if (!conn.isConnected) {
+          return IconButton(
+            tooltip: 'Sign in with Google',
+            icon: const Icon(Icons.account_circle_outlined),
+            onPressed: () => service.connect(),
+          );
+        }
         return PopupMenuButton<String>(
-          tooltip: conn.authorized
-              ? 'Google Calendar — connected'
-              : 'Connect Google Calendar',
-          icon: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(Icons.event_available_outlined, color: iconColor),
-              if (conn.authorized)
-                Positioned(
-                  right: -2,
-                  bottom: -2,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: scheme.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: scheme.surface, width: 1.5),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          tooltip: 'Account — ${conn.email ?? ''}',
+          position: PopupMenuPosition.under,
+          offset: const Offset(0, 8),
+          icon: _AccountAvatar(conn: conn, size: 28),
           onSelected: (v) async {
             switch (v) {
-              case 'connect':
+              case 'reauth':
                 await service.connect();
                 break;
               case 'disconnect':
@@ -800,53 +790,142 @@ class _CalendarMenuButton extends StatelessWidget {
                 break;
             }
           },
-          itemBuilder: (context) {
-            if (conn.authorized) {
-              return [
-                PopupMenuItem<String>(
-                  enabled: false,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Google Calendar',
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        conn.email ?? '',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.muted,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem<String>(
-                  value: 'disconnect',
-                  child: ListTile(
-                    leading: Icon(Icons.link_off),
-                    title: Text('Disconnect'),
-                    dense: true,
-                  ),
-                ),
-              ];
-            }
-            return const [
-              PopupMenuItem<String>(
-                value: 'connect',
-                child: ListTile(
-                  leading: Icon(Icons.link),
-                  title: Text('Connect Google Calendar'),
-                  subtitle: Text('Export dated tasks as events'),
-                  dense: true,
-                ),
-              ),
-            ];
-          },
+          itemBuilder: (ctx) => _accountMenuItems(ctx, conn),
         );
       },
     );
+  }
+
+  List<PopupMenuEntry<String>> _accountMenuItems(
+    BuildContext context,
+    CalendarConnection conn,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return [
+      PopupMenuItem<String>(
+        enabled: false,
+        padding: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              _AccountAvatar(conn: conn, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      conn.displayName?.trim().isNotEmpty == true
+                          ? conn.displayName!
+                          : (conn.email ?? 'Signed in'),
+                      style: theme.textTheme.titleSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (conn.email != null &&
+                        conn.email != conn.displayName) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        conn.email!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.muted,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem<String>(
+        enabled: false,
+        padding: EdgeInsets.zero,
+        child: ListTile(
+          dense: true,
+          leading: Icon(
+            conn.authorized
+                ? Icons.event_available_outlined
+                : Icons.event_busy_outlined,
+            color: conn.authorized ? scheme.primary : scheme.muted,
+          ),
+          title: const Text('Google Calendar'),
+          subtitle: Text(
+            conn.authorized ? 'Connected' : 'Sign-in only — scope not granted',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: conn.authorized ? scheme.primary : scheme.muted,
+            ),
+          ),
+        ),
+      ),
+      if (!conn.authorized)
+        const PopupMenuItem<String>(
+          value: 'reauth',
+          child: ListTile(
+            leading: Icon(Icons.lock_open_outlined),
+            title: Text('Grant calendar access'),
+            dense: true,
+          ),
+        ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'disconnect',
+        child: ListTile(
+          leading: Icon(Icons.logout),
+          title: Text('Disconnect'),
+          dense: true,
+        ),
+      ),
+    ];
+  }
+}
+
+class _AccountAvatar extends StatelessWidget {
+  final CalendarConnection conn;
+  final double size;
+  const _AccountAvatar({required this.conn, this.size = 28});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final url = conn.photoUrl;
+    final initials = _initialsFor(conn);
+    final radius = size / 2;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      backgroundImage: url != null ? NetworkImage(url) : null,
+      child: url == null
+          ? (initials.isNotEmpty
+              ? Text(
+                  initials,
+                  style: TextStyle(
+                    fontSize: size * 0.42,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              : Icon(Icons.person, size: size * 0.6))
+          : null,
+    );
+  }
+
+  static String _initialsFor(CalendarConnection conn) {
+    final source =
+        (conn.displayName?.trim().isNotEmpty == true ? conn.displayName : conn.email) ??
+            '';
+    if (source.isEmpty) return '';
+    final parts = source.split(RegExp(r'[\s@._-]+')).where((p) => p.isNotEmpty);
+    if (parts.isEmpty) return source.substring(0, 1).toUpperCase();
+    final first = parts.first[0];
+    final second = parts.length > 1 ? parts.elementAt(1)[0] : '';
+    return (first + second).toUpperCase();
   }
 }

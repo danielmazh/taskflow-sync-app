@@ -39,6 +39,15 @@ Future<void> main() async {
     onCancel: notifications.cancel,
     onSyncUpsert: calendarSync.upsertEvent,
     onSyncDelete: calendarSync.deleteEvent,
+    onSyncLinkStatus: (id) async {
+      final s = await calendarSync.eventLinkStatus(id);
+      return switch (s) {
+        EventLinkStatus.exists => TaskCalendarLinkStatus.exists,
+        EventLinkStatus.gone => TaskCalendarLinkStatus.gone,
+        EventLinkStatus.unknown => TaskCalendarLinkStatus.unknown,
+      };
+    },
+    isCalendarAuthorized: () => calendarSync.isAuthorized,
   );
 
   final initialThemeMode = await storage.loadThemeMode();
@@ -54,6 +63,14 @@ Future<void> main() async {
     store.replaceAll(fresh);
   }
 
+  /// Resume hook: refresh persisted state and then ask Calendar whether each
+  /// linked event still exists. The store's own throttle keeps rapid resumes
+  /// from hammering the API; auth/offline cases short-circuit cheaply.
+  Future<void> onResume() async {
+    await rehydrate();
+    unawaited(store.reconcileCalendarLinks());
+  }
+
   notifications.foregroundRehydrate = rehydrate;
 
   // Re-arm notifications for already-due tasks on cold start. Non-user-initiated:
@@ -64,7 +81,7 @@ Future<void> main() async {
     }
   }
 
-  final lifecycle = _LifecycleHandler(onResumed: rehydrate);
+  final lifecycle = _LifecycleHandler(onResumed: onResume);
   WidgetsBinding.instance.addObserver(lifecycle);
 
   runApp(TaskFlowApp(

@@ -14,6 +14,20 @@ typedef TaskCancelCb = Future<void> Function(String taskId);
 typedef TaskSyncUpsertCb = Future<String?> Function(Task task);
 typedef TaskSyncDeleteCb = Future<void> Function(String eventId);
 
+/// Definitive existence query for a previously-created calendar event.
+/// Mirrors `CalendarSyncService.eventLinkStatus`. Returns a 3-state result:
+/// the store clears `calendarEventId` ONLY when this returns
+/// [TaskCalendarLinkStatus.gone] — never on `unknown`, so an offline resume
+/// won't orphan every linked task. Best-effort: must not throw.
+enum TaskCalendarLinkStatus { exists, gone, unknown }
+typedef TaskCalendarLinkStatusCb = Future<TaskCalendarLinkStatus> Function(
+  String eventId,
+);
+
+/// Reports whether the calendar is currently usable for queries.
+/// Reconciliation skips when this returns false (offline / not authorized).
+typedef TaskCalendarAuthorizedCb = bool Function();
+
 class TaskStore extends ChangeNotifier {
   final List<Task> _tasks;
   final TaskPersist? onChanged;
@@ -21,6 +35,8 @@ class TaskStore extends ChangeNotifier {
   final TaskCancelCb? onCancel;
   final TaskSyncUpsertCb? onSyncUpsert;
   final TaskSyncDeleteCb? onSyncDelete;
+  final TaskCalendarLinkStatusCb? onSyncLinkStatus;
+  final TaskCalendarAuthorizedCb? isCalendarAuthorized;
 
   TaskStore({
     List<Task>? seed,
@@ -29,7 +45,12 @@ class TaskStore extends ChangeNotifier {
     this.onCancel,
     this.onSyncUpsert,
     this.onSyncDelete,
+    this.onSyncLinkStatus,
+    this.isCalendarAuthorized,
   }) : _tasks = [...?seed];
+
+  DateTime? _lastReconcileAt;
+  bool _reconcileInFlight = false;
 
   List<Task> get tasks => List.unmodifiable(_tasks);
 
@@ -157,6 +178,58 @@ class TaskStore extends ChangeNotifier {
     _persist();
     notifyListeners();
     return true;
+  }
+
+  /// App-resume reconciliation. For every task with a `calendarEventId`, ask
+  /// the service whether that event still exists. Clear the link ONLY on a
+  /// definitive `gone` — never on `unknown` (offline / quota / auth blip).
+  /// Best-effort, in-flight de-duplicated, and throttled to once per
+  /// [minInterval]; pass [force] to bypass the throttle (tests).
+  Future<void> reconcileCalendarLinks({
+    Duration minInterval = const Duration(seconds: 60),
+    bool force = false,
+  }) async {
+    final query = onSyncLinkStatus;
+    if (query == null) return;
+    if (isCalendarAuthorized?.call() == false) return;
+    if (_reconcileInFlight) return;
+    final last = _lastReconcileAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < minInterval) {
+      return;
+    }
+    _reconcileInFlight = true;
+    _lastReconcileAt = DateTime.now();
+    var anyCleared = false;
+    try {
+      for (final t in List<Task>.of(_tasks)) {
+        final id = t.calendarEventId;
+        if (id == null) continue;
+        TaskCalendarLinkStatus status;
+        try {
+          status = await query(id);
+        } catch (_) {
+          status = TaskCalendarLinkStatus.unknown;
+        }
+        if (status != TaskCalendarLinkStatus.gone) continue;
+        // Re-look up in case the live list changed under us.
+        final live = _tasks.firstWhere(
+          (x) => x.id == t.id,
+          orElse: () => t,
+        );
+        if (live.calendarEventId != null) {
+          live.calendarEventId = null;
+          anyCleared = true;
+        }
+      }
+      if (anyCleared) {
+        _persist();
+        notifyListeners();
+      }
+    } finally {
+      _reconcileInFlight = false;
+    }
   }
 
   /// Replace the in-memory task list from an authoritative source (disk after
