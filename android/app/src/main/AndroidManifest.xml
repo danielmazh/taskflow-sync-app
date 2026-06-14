@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
     <application
-        android:label="taskflow_sync"
+        android:label="TaskFlow Sync"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- flutter_local_notifications v16+ no longer self-declares these. -->

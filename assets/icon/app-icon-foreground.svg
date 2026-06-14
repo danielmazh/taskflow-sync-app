@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Adaptive-icon foreground.
+       The Launcher masks adaptive icons to a circle/squircle on a 108dp canvas
+       and visible area is roughly the centre 66% of the source. flutter_launcher_icons
+       adds a 16% inset on top of that. To make the check read at launcher
+       size, we scale the glyph 1.45× around the canvas centre — final visible
+       glyph ≈ 60% of the masked area, well inside the safe zone. -->
+  <g transform="translate(512 512) scale(1.45) translate(-522.5 -517)">
+    <polyline points="300,545 452,690 745,344"
+              fill="none" stroke="#FFFFFF" stroke-width="92"
+              stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
