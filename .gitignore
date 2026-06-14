@@ -52,3 +52,6 @@ app.*.map.json
 
 # OAuth client secrets / downloaded credentials — NEVER commit
 .claude/env/
+
+# Operator scratch / handoff files (never sweep into commits)
+.claude/tmp/
