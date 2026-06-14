@@ -11,13 +11,13 @@ Console path: **Google Cloud Console → APIs &amp; Services → OAuth consent s
 | Field | Value |
 |---|---|
 | App name | `TaskFlow Sync` |
-| User support email | `{{SUPPORT_EMAIL}}` |
+| User support email | `daniel.mazhbits@gmail.com` |
 | App logo | 120×120 PNG, square, non-transparent (BLOCKED — operator to supply) |
-| Application home page | `{{HOMEPAGE_URL}}` — e.g. `https://taskflow-sync.example.com/` |
-| Application privacy policy link | `{{PRIVACY_URL}}` — e.g. `https://taskflow-sync.example.com/privacy-policy.html` |
+| Application home page | `https://danielmazh.github.io/taskflow-sync-app/` — e.g. `https://taskflow-sync.example.com/` |
+| Application privacy policy link | `https://danielmazh.github.io/taskflow-sync-app/privacy-policy.html` — e.g. `https://taskflow-sync.example.com/privacy-policy.html` |
 | Application terms of service link | *(optional — leave blank for v1)* |
-| Authorized domains | `{{AUTHORIZED_DOMAIN}}` — e.g. `taskflow-sync.example.com` (top-level only, no scheme, no path) |
-| Developer contact email(s) | `{{SUPPORT_EMAIL}}` |
+| Authorized domains | `github.io` — e.g. `taskflow-sync.example.com` (top-level only, no scheme, no path) |
+| Developer contact email(s) | `daniel.mazhbits@gmail.com` |
 
 ---
 
