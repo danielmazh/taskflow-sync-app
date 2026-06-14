@@ -681,11 +681,10 @@ void main() {
     });
   });
 
-  group('TaskStore sync reconciliation', () {
-    test('add(dated, undone) calls upsert and stores returned event id',
-        () async {
+  group('TaskStore — explicit calendar export (Phase 4b)', () {
+    test('add(dated) does NOT call upsert (no auto-sync)', () async {
       final mock = _MockSync();
-      mock.upsertResult = 'evt-new';
+      mock.upsertResult = 'evt-auto';
       final store = TaskStore(
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
@@ -696,61 +695,62 @@ void main() {
         dueAt: DateTime(2030, 1, 1, 9),
       ));
       await Future<void>.delayed(Duration.zero);
-      expect(mock.upsertCalls, 1);
-      expect(mock.deleteCalls, 0);
-      expect(store.tasks.single.calendarEventId, 'evt-new');
-    });
-
-    test('add(no due) does NOT call upsert', () async {
-      final mock = _MockSync();
-      final store = TaskStore(
-        onSyncUpsert: mock.upsert,
-        onSyncDelete: mock.delete,
-      );
-      store.add(Task(id: 't1', title: 'no due'));
-      await Future<void>.delayed(Duration.zero);
       expect(mock.upsertCalls, 0);
       expect(mock.deleteCalls, 0);
       expect(store.tasks.single.calendarEventId, isNull);
     });
 
-    test('completing a synced task deletes its event and nulls the id',
-        () async {
+    test('update / toggle do NOT call upsert (no auto-sync)', () async {
       final mock = _MockSync();
-      mock.upsertResult = 'evt-1';
+      mock.upsertResult = 'evt-auto';
       final store = TaskStore(
+        seed: [Task(id: 't1', title: 'orig', dueAt: DateTime(2030, 1, 1, 9))],
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
       );
-      store.add(Task(
-        id: 't1',
-        title: 'do',
-        dueAt: DateTime(2030, 1, 1, 9),
-      ));
-      await Future<void>.delayed(Duration.zero);
-      expect(store.tasks.single.calendarEventId, 'evt-1');
-
+      store.update(id: 't1', title: 'new', note: null, dueAt: DateTime(2030, 1, 2));
       store.toggle('t1');
       await Future<void>.delayed(Duration.zero);
-      expect(mock.deleteCalls, 1);
-      expect(mock.lastDeletedId, 'evt-1');
-      expect(store.tasks.single.calendarEventId, isNull);
+      expect(mock.upsertCalls, 0);
+      expect(mock.deleteCalls, 0);
     });
 
-    test('deleting a synced task deletes its event (best-effort)', () async {
+    test('completing a task does NOT delete a calendar event (4b: explicit-only)',
+        () async {
       final mock = _MockSync();
-      mock.upsertResult = 'evt-2';
       final store = TaskStore(
+        seed: [
+          Task(
+            id: 't1',
+            title: 'do',
+            dueAt: DateTime(2030, 1, 1, 9),
+            calendarEventId: 'evt-1',
+          ),
+        ],
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
       );
-      store.add(Task(
-        id: 't1',
-        title: 'do',
-        dueAt: DateTime(2030, 1, 1, 9),
-      ));
+      store.toggle('t1');
       await Future<void>.delayed(Duration.zero);
+      expect(mock.deleteCalls, 0);
+      expect(store.tasks.single.calendarEventId, 'evt-1');
+    });
 
+    test('deleting a synced task DOES delete its event (no orphans)',
+        () async {
+      final mock = _MockSync();
+      final store = TaskStore(
+        seed: [
+          Task(
+            id: 't1',
+            title: 'do',
+            dueAt: DateTime(2030, 1, 1, 9),
+            calendarEventId: 'evt-2',
+          ),
+        ],
+        onSyncUpsert: mock.upsert,
+        onSyncDelete: mock.delete,
+      );
       store.delete('t1');
       await Future<void>.delayed(Duration.zero);
       expect(mock.deleteCalls, 1);
@@ -758,73 +758,88 @@ void main() {
       expect(store.tasks, isEmpty);
     });
 
-    test(
-        'clearing dueAt via update deletes the event and nulls the id',
+    test('exportTaskToCalendar(dated) upserts and stores returned id',
         () async {
       final mock = _MockSync();
-      mock.upsertResult = 'evt-3';
+      mock.upsertResult = 'evt-new';
       final store = TaskStore(
+        seed: [Task(id: 't1', title: 'has due', dueAt: DateTime(2030, 1, 1, 9))],
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
       );
-      store.add(Task(
-        id: 't1',
-        title: 'do',
-        dueAt: DateTime(2030, 1, 1, 9),
-      ));
-      await Future<void>.delayed(Duration.zero);
-
-      store.update(id: 't1', title: 'do', note: null, dueAt: null);
-      await Future<void>.delayed(Duration.zero);
-      expect(mock.deleteCalls, 1);
-      expect(store.tasks.single.calendarEventId, isNull);
+      final ok = await store.exportTaskToCalendar('t1');
+      expect(ok, isTrue);
+      expect(mock.upsertCalls, 1);
+      expect(store.tasks.single.calendarEventId, 'evt-new');
     });
 
-    test(
-        'upsert returning null leaves calendarEventId untouched (failure path)',
+    test('exportTaskToCalendar with upsert returning null leaves id untouched',
         () async {
       final mock = _MockSync();
-      mock.upsertResult = null; // simulate sync failure / not-authorized
+      mock.upsertResult = null;
       final store = TaskStore(
+        seed: [Task(id: 't1', title: 'do', dueAt: DateTime(2030, 1, 1, 9))],
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
       );
-      store.add(Task(
-        id: 't1',
-        title: 'do',
-        dueAt: DateTime(2030, 1, 1, 9),
-      ));
-      await Future<void>.delayed(Duration.zero);
+      final ok = await store.exportTaskToCalendar('t1');
+      expect(ok, isFalse);
       expect(mock.upsertCalls, 1);
       expect(store.tasks.single.calendarEventId, isNull);
     });
 
-    test('resyncAll back-fills every dated undone task', () async {
+    test('exportTaskToCalendar returns false when no upsert callback wired',
+        () async {
+      final store = TaskStore(
+        seed: [Task(id: 't1', title: 't', dueAt: DateTime(2030, 1, 1, 9))],
+      );
+      expect(await store.exportTaskToCalendar('t1'), isFalse);
+      expect(await store.exportTaskToCalendar('nope'), isFalse);
+    });
+
+    test('removeTaskFromCalendar clears the link and calls onSyncDelete',
+        () async {
       final mock = _MockSync();
-      var counter = 0;
-      mock.upsertFn = (_) async => 'evt-${++counter}';
       final store = TaskStore(
         seed: [
-          Task(id: 'a', title: 'A', dueAt: DateTime(2030, 1, 1)),
-          Task(id: 'b', title: 'B'), // no due — should NOT upsert
           Task(
-            id: 'c',
-            title: 'C',
-            dueAt: DateTime(2030, 1, 2),
-            isDone: true, // done — should NOT upsert
+            id: 't1',
+            title: 'do',
+            dueAt: DateTime(2030, 1, 1, 9),
+            calendarEventId: 'evt-7',
           ),
         ],
         onSyncUpsert: mock.upsert,
         onSyncDelete: mock.delete,
       );
-      await store.resyncAll();
-      expect(mock.upsertCalls, 1);
-      expect(store.tasks.firstWhere((t) => t.id == 'a').calendarEventId,
-          isNotNull);
-      expect(store.tasks.firstWhere((t) => t.id == 'b').calendarEventId,
-          isNull);
-      expect(store.tasks.firstWhere((t) => t.id == 'c').calendarEventId,
-          isNull);
+      final ok = await store.removeTaskFromCalendar('t1');
+      expect(ok, isTrue);
+      expect(mock.deleteCalls, 1);
+      expect(mock.lastDeletedId, 'evt-7');
+      expect(store.tasks.single.calendarEventId, isNull);
+    });
+
+    test('removeTaskFromCalendar is a no-op when not exported', () async {
+      final mock = _MockSync();
+      final store = TaskStore(
+        seed: [Task(id: 't1', title: 'do', dueAt: DateTime(2030, 1, 1, 9))],
+        onSyncUpsert: mock.upsert,
+        onSyncDelete: mock.delete,
+      );
+      final ok = await store.removeTaskFromCalendar('t1');
+      expect(ok, isFalse);
+      expect(mock.deleteCalls, 0);
+    });
+  });
+
+  group('AddTaskSheetResult.addToCalendar plumbing', () {
+    test('default value is false', () {
+      const r = AddTaskSheetResult(title: 'x');
+      expect(r.addToCalendar, isFalse);
+    });
+    test('explicit true is preserved', () {
+      const r = AddTaskSheetResult(title: 'x', addToCalendar: true);
+      expect(r.addToCalendar, isTrue);
     });
   });
 }

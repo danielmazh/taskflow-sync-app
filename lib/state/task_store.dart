@@ -62,43 +62,11 @@ class TaskStore extends ChangeNotifier {
     }
   }
 
-  /// One-way Google Calendar mirror. Best-effort: any failure leaves the local
-  /// task untouched. Round-trips the resulting event id back into the task and
-  /// re-persists so the link survives restart.
-  Future<void> _syncReconcile(Task task) async {
-    final upsertCb = onSyncUpsert;
-    final deleteCb = onSyncDelete;
-    if (upsertCb == null && deleteCb == null) return;
-    final shouldHaveEvent = task.effectiveDueAt != null && !task.isDone;
-    try {
-      if (shouldHaveEvent) {
-        if (upsertCb == null) return;
-        final newId = await upsertCb(task);
-        if (newId == null) return;
-        if (newId != task.calendarEventId) {
-          task.calendarEventId = newId;
-          _persist();
-          notifyListeners();
-        }
-      } else {
-        final existing = task.calendarEventId;
-        if (existing == null || deleteCb == null) return;
-        await deleteCb(existing);
-        task.calendarEventId = null;
-        _persist();
-        notifyListeners();
-      }
-    } catch (_) {
-      // best-effort, never throw out of the store
-    }
-  }
-
   void add(Task task) {
     _tasks.add(task);
     notifyListeners();
     _persist();
     _reconcile(task);
-    unawaited(_syncReconcile(task));
   }
 
   void update({
@@ -118,7 +86,6 @@ class TaskStore extends ChangeNotifier {
     notifyListeners();
     _persist();
     _reconcile(t);
-    unawaited(_syncReconcile(t));
   }
 
   void toggle(String id) {
@@ -130,7 +97,6 @@ class TaskStore extends ChangeNotifier {
     notifyListeners();
     _persist();
     _reconcile(t);
-    unawaited(_syncReconcile(t));
   }
 
   void delete(String id) {
@@ -140,6 +106,7 @@ class TaskStore extends ChangeNotifier {
     notifyListeners();
     _persist();
     _cancel(id);
+    // Deleting a task must remove its calendar event — no orphans.
     final eventId = removed.calendarEventId;
     final deleteCb = onSyncDelete;
     if (eventId != null && deleteCb != null) {
@@ -147,13 +114,49 @@ class TaskStore extends ChangeNotifier {
     }
   }
 
-  /// Re-run the calendar mirror for every task. Invoked once after the user
-  /// newly connects to Google Calendar (back-fill).
-  Future<void> resyncAll() async {
-    if (onSyncUpsert == null && onSyncDelete == null) return;
-    for (final t in List<Task>.of(_tasks)) {
-      await _syncReconcile(t);
+  /// User-triggered: create or update the calendar event for [id]. Returns
+  /// true on success (event created or updated), false on no-op / failure.
+  /// Best-effort: never throws.
+  Future<bool> exportTaskToCalendar(String id) async {
+    final upsertCb = onSyncUpsert;
+    if (upsertCb == null) return false;
+    final i = _tasks.indexWhere((t) => t.id == id);
+    if (i < 0) return false;
+    final t = _tasks[i];
+    try {
+      final newId = await upsertCb(t);
+      if (newId == null) return false;
+      if (newId != t.calendarEventId) {
+        t.calendarEventId = newId;
+        _persist();
+        notifyListeners();
+      }
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  /// User-triggered: remove the calendar event for [id] and clear the link.
+  /// Returns true if a delete was attempted (regardless of network result).
+  /// Best-effort: never throws.
+  Future<bool> removeTaskFromCalendar(String id) async {
+    final deleteCb = onSyncDelete;
+    if (deleteCb == null) return false;
+    final i = _tasks.indexWhere((t) => t.id == id);
+    if (i < 0) return false;
+    final t = _tasks[i];
+    final existing = t.calendarEventId;
+    if (existing == null) return false;
+    try {
+      await deleteCb(existing);
+    } catch (_) {
+      // best-effort; still clear the local link so UI reflects "not exported"
+    }
+    t.calendarEventId = null;
+    _persist();
+    notifyListeners();
+    return true;
   }
 
   /// Replace the in-memory task list from an authoritative source (disk after

@@ -41,17 +41,6 @@ Future<void> main() async {
     onSyncDelete: calendarSync.deleteEvent,
   );
 
-  // Newly-authorized sessions trigger a one-time back-fill so existing
-  // pending dated tasks are mirrored to the calendar.
-  bool wasAuthorized = calendarSync.connection.value.authorized;
-  calendarSync.connection.addListener(() {
-    final nowAuth = calendarSync.connection.value.authorized;
-    if (!wasAuthorized && nowAuth) {
-      unawaited(store.resyncAll());
-    }
-    wasAuthorized = nowAuth;
-  });
-
   final initialThemeMode = await storage.loadThemeMode();
   final themeController = ThemeController(
     initial: initialThemeMode,
