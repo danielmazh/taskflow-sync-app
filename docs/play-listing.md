@@ -31,7 +31,7 @@ their reminders to fire on time and their tasks to stay on their device.
 • No accounts required. No backend. Tasks live on your device by default.
 
 We never sell your data. We never share it. We do not use your data to train AI.
-Read the full privacy policy at https://danielmazh.github.io/taskflow-sync-app/privacy-policy.html.
+Read the full privacy policy at https://taskflowsync.xyz/privacy-policy.html.
 ```
 
 ## What's new (max 500 chars — for first release)
