@@ -89,6 +89,7 @@ class CalendarSyncService {
     connection.value = CalendarConnection.connected(
       email: user.email,
       displayName: user.displayName,
+      photoUrl: user.photoUrl,
       authorized: auth != null,
     );
   }
@@ -109,6 +110,7 @@ class CalendarSyncService {
       connection.value = CalendarConnection.connected(
         email: user.email,
         displayName: user.displayName,
+        photoUrl: user.photoUrl,
         authorized: true,
       );
       unawaited(saveConnectedFlag?.call(true));
@@ -156,6 +158,11 @@ class CalendarSyncService {
 
   /// Create or patch the event for [task]. Returns the new event id (or the
   /// existing one), or null on failure / not-authorized.
+  ///
+  /// The app is the source of truth: if the server says the linked event is
+  /// gone (404 / 410) OR has been manually deleted (Google returns the event
+  /// shape with `status == 'cancelled'` for a while after deletion), re-insert
+  /// a fresh event and return its id so Export/Update reliably resurrects it.
   Future<String?> upsertEvent(Task task) async {
     if (!isAuthorized) return null;
     final due = task.effectiveDueAt;
@@ -171,6 +178,10 @@ class CalendarSyncService {
       }
       try {
         final patched = await api.events.patch(event, 'primary', existing);
+        if (patched.status == 'cancelled') {
+          final created = await api.events.insert(event, 'primary');
+          return created.id;
+        }
         return patched.id ?? existing;
       } on gcal.DetailedApiRequestError catch (e) {
         // Event was deleted on the server side — re-create.
@@ -183,6 +194,34 @@ class CalendarSyncService {
     } catch (e, st) {
       debugPrint('CalendarSync.upsertEvent failed: $e\n$st');
       return null;
+    }
+  }
+
+  /// Definitive existence check for an event we previously created. Used by
+  /// the store on resume to clear stale `calendarEventId` links so the UI
+  /// reverts to "Export". Best-effort — never throws.
+  ///
+  /// * `exists`  — `events.get` succeeded AND the event's `status` is not
+  ///   `'cancelled'`.
+  /// * `gone`    — 404 / 410, or the event came back with `status == 'cancelled'`.
+  /// * `unknown` — any other failure (auth, network, quota). Caller MUST treat
+  ///   this as "no information" — never wipe the local link on `unknown`,
+  ///   otherwise an offline resume would orphan every linked task.
+  Future<EventLinkStatus> eventLinkStatus(String eventId) async {
+    if (!isAuthorized) return EventLinkStatus.unknown;
+    final api = await _api();
+    if (api == null) return EventLinkStatus.unknown;
+    try {
+      final ev = await api.events.get('primary', eventId);
+      if (ev.status == 'cancelled') return EventLinkStatus.gone;
+      return EventLinkStatus.exists;
+    } on gcal.DetailedApiRequestError catch (e) {
+      if (e.status == 404 || e.status == 410) return EventLinkStatus.gone;
+      debugPrint('CalendarSync.eventLinkStatus api error ${e.status}: ${e.message}');
+      return EventLinkStatus.unknown;
+    } catch (e, st) {
+      debugPrint('CalendarSync.eventLinkStatus failed: $e\n$st');
+      return EventLinkStatus.unknown;
     }
   }
 
@@ -233,22 +272,28 @@ class CalendarConnection {
   final bool authorized;
   final String? email;
   final String? displayName;
+  final String? photoUrl;
   const CalendarConnection._({
     required this.isConnected,
     required this.authorized,
     this.email,
     this.displayName,
+    this.photoUrl,
   });
   const CalendarConnection.disconnected()
       : this._(isConnected: false, authorized: false);
   const CalendarConnection.connected({
     required String email,
     String? displayName,
+    String? photoUrl,
     required bool authorized,
   }) : this._(
           isConnected: true,
           authorized: authorized,
           email: email,
           displayName: displayName,
+          photoUrl: photoUrl,
         );
 }
+
+enum EventLinkStatus { exists, gone, unknown }

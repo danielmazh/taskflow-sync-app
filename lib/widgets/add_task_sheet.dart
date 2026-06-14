@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/task.dart';
+import '../theme/app_theme.dart';
 import 'voice_capture_sheet.dart';
 
 class AddTaskSheetResult {
@@ -61,8 +62,12 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
   DateTime? _dueAt;
   bool _addToCalendar = false;
   bool get _isEdit => widget.initial != null;
-  bool get _showCalendarCheckbox =>
-      !_isEdit && widget.calendarAvailable && _dueAt != null;
+  /// The checkbox is *visible* whenever calendar export is offered on the
+  /// add flow (Phase 4c — surfaced at creation so users discover it before
+  /// picking a time). It is *enabled* only once a due time is set; otherwise
+  /// it renders disabled with an explanatory hint.
+  bool get _showCalendarCheckbox => !_isEdit && widget.calendarAvailable;
+  bool get _calendarCheckboxEnabled => _showCalendarCheckbox && _dueAt != null;
 
   @override
   void initState() {
@@ -140,7 +145,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
         title: title,
         note: note.isEmpty ? null : note,
         dueAt: _dueAt,
-        addToCalendar: _showCalendarCheckbox && _addToCalendar,
+        addToCalendar: _calendarCheckboxEnabled && _addToCalendar,
       ),
     );
   }
@@ -241,13 +246,26 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
           if (_showCalendarCheckbox) ...[
             const SizedBox(height: 4),
             CheckboxListTile(
-              value: _addToCalendar,
-              onChanged: (v) => setState(() => _addToCalendar = v ?? false),
+              value: _calendarCheckboxEnabled && _addToCalendar,
+              onChanged: _calendarCheckboxEnabled
+                  ? (v) => setState(() => _addToCalendar = v ?? false)
+                  : null,
               controlAffinity: ListTileControlAffinity.leading,
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: const Text('Add to Google Calendar'),
-              secondary: const Icon(Icons.event_available_outlined),
+              subtitle: _calendarCheckboxEnabled
+                  ? null
+                  : Text(
+                      'Pick a due time to add it to your calendar',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.muted,
+                      ),
+                    ),
+              secondary: Icon(
+                Icons.event_available_outlined,
+                color: _calendarCheckboxEnabled ? null : scheme.muted,
+              ),
             ),
           ],
           const SizedBox(height: 16),

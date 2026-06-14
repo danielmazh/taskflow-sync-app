@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:taskflow_sync/main.dart';
 import 'package:taskflow_sync/models/task.dart';
+import 'package:taskflow_sync/services/calendar_sync_service.dart';
 import 'package:taskflow_sync/services/notification_service.dart';
 import 'package:taskflow_sync/services/storage_service.dart';
 import 'package:taskflow_sync/services/task_parser.dart';
@@ -842,6 +843,178 @@ void main() {
       expect(r.addToCalendar, isTrue);
     });
   });
+
+  group('Phase 4c — add-task sheet checkbox visibility', () {
+    Future<void> openSheet(
+      WidgetTester tester, {
+      required bool calendarAvailable,
+    }) async {
+      AddTaskSheetResult? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (ctx) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  result = await showAddTaskSheet(
+                    ctx,
+                    calendarAvailable: calendarAvailable,
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // Quick suppression of the unused-variable warning — the result is
+      // intentionally not asserted here; the sheet's visual state is what
+      // the test inspects.
+      expect(result, anything);
+    }
+
+    testWidgets(
+      'visible at creation even without a due time, but disabled with hint',
+      (tester) async {
+        await openSheet(tester, calendarAvailable: true);
+        expect(find.text('Add to Google Calendar'), findsOneWidget);
+        expect(
+          find.text('Pick a due time to add it to your calendar'),
+          findsOneWidget,
+        );
+        final tile = tester.widget<CheckboxListTile>(
+          find.byType(CheckboxListTile),
+        );
+        expect(tile.onChanged, isNull, reason: 'should be disabled');
+        expect(tile.value, isFalse);
+      },
+    );
+
+    testWidgets(
+      'hidden entirely when calendarAvailable is false',
+      (tester) async {
+        await openSheet(tester, calendarAvailable: false);
+        expect(find.text('Add to Google Calendar'), findsNothing);
+        expect(find.byType(CheckboxListTile), findsNothing);
+      },
+    );
+  });
+
+  group('TaskStore.reconcileCalendarLinks (Phase 4c)', () {
+    test('clears calendarEventId only when status == gone', () async {
+      final mock = _MockSync()
+        ..linkStatusById['evt-A'] = TaskCalendarLinkStatus.gone
+        ..linkStatusById['evt-B'] = TaskCalendarLinkStatus.exists
+        ..linkStatusById['evt-C'] = TaskCalendarLinkStatus.unknown;
+      final store = TaskStore(
+        seed: [
+          Task(id: 'A', title: 'A', calendarEventId: 'evt-A'),
+          Task(id: 'B', title: 'B', calendarEventId: 'evt-B'),
+          Task(id: 'C', title: 'C', calendarEventId: 'evt-C'),
+        ],
+        onSyncLinkStatus: mock.linkStatus,
+        isCalendarAuthorized: () => mock.authorized,
+      );
+      await store.reconcileCalendarLinks(force: true);
+      expect(mock.linkStatusCalls, 3);
+      expect(store.tasks.firstWhere((t) => t.id == 'A').calendarEventId, isNull);
+      expect(store.tasks.firstWhere((t) => t.id == 'B').calendarEventId, 'evt-B');
+      expect(store.tasks.firstWhere((t) => t.id == 'C').calendarEventId, 'evt-C');
+    });
+
+    test('unknown does NOT wipe links (offline-safe)', () async {
+      final mock = _MockSync();
+      mock.linkStatusFn = (_) async => TaskCalendarLinkStatus.unknown;
+      final store = TaskStore(
+        seed: [
+          Task(id: 'A', title: 'A', calendarEventId: 'evt-A'),
+        ],
+        onSyncLinkStatus: mock.linkStatus,
+        isCalendarAuthorized: () => mock.authorized,
+      );
+      await store.reconcileCalendarLinks(force: true);
+      expect(store.tasks.single.calendarEventId, 'evt-A');
+    });
+
+    test('skipped when not authorized', () async {
+      final mock = _MockSync()..authorized = false;
+      final store = TaskStore(
+        seed: [Task(id: 'A', title: 'A', calendarEventId: 'evt-A')],
+        onSyncLinkStatus: mock.linkStatus,
+        isCalendarAuthorized: () => mock.authorized,
+      );
+      await store.reconcileCalendarLinks(force: true);
+      expect(mock.linkStatusCalls, 0);
+    });
+
+    test('throttle suppresses rapid re-entry; force bypasses it', () async {
+      final mock = _MockSync()
+        ..linkStatusById['evt-A'] = TaskCalendarLinkStatus.exists;
+      final store = TaskStore(
+        seed: [Task(id: 'A', title: 'A', calendarEventId: 'evt-A')],
+        onSyncLinkStatus: mock.linkStatus,
+        isCalendarAuthorized: () => mock.authorized,
+      );
+      await store.reconcileCalendarLinks(force: true);
+      await store.reconcileCalendarLinks();
+      await store.reconcileCalendarLinks();
+      expect(mock.linkStatusCalls, 1, reason: 'second call should be throttled');
+      await store.reconcileCalendarLinks(force: true);
+      expect(mock.linkStatusCalls, 2);
+    });
+
+    test(
+      'export-after-manual-delete: simulates that re-export re-stores a new id',
+      () async {
+        // The "cancelled patch → reinsert" path lives in CalendarSyncService
+        // (which can't be exercised in pure unit tests without a real
+        // googleapis HTTP stack). At the store level, the contract that
+        // matters is: an upsert that returns a fresh id after the previous
+        // event was effectively gone must round the new id into the task.
+        final mock = _MockSync();
+        var calls = 0;
+        mock.upsertFn = (_) async {
+          calls++;
+          return calls == 1 ? 'evt-original' : 'evt-recreated';
+        };
+        final store = TaskStore(
+          seed: [Task(id: 'A', title: 'A', dueAt: DateTime(2030, 1, 1, 9))],
+          onSyncUpsert: mock.upsert,
+          onSyncDelete: mock.delete,
+        );
+        await store.exportTaskToCalendar('A');
+        expect(store.tasks.single.calendarEventId, 'evt-original');
+        // Simulate: user manually deleted the event in Google Calendar; on
+        // resume reconcile would clear the id. Then user taps Export again.
+        await store.removeTaskFromCalendar('A'); // clear local link
+        mock.deleteCalls = 0; // reset for clarity
+        await store.exportTaskToCalendar('A');
+        expect(store.tasks.single.calendarEventId, 'evt-recreated');
+      },
+    );
+  });
+
+  group('Phase 4c — CalendarConnection.photoUrl', () {
+    test('connected carries photoUrl + initials helper-friendly fields', () {
+      const c = CalendarConnection.connected(
+        email: 'a@b.com',
+        displayName: 'Alice Example',
+        photoUrl: 'https://example.com/p.jpg',
+        authorized: true,
+      );
+      expect(c.photoUrl, 'https://example.com/p.jpg');
+      expect(c.displayName, 'Alice Example');
+      expect(c.isConnected, isTrue);
+    });
+
+    test('disconnected has null photoUrl', () {
+      const c = CalendarConnection.disconnected();
+      expect(c.photoUrl, isNull);
+      expect(c.isConnected, isFalse);
+    });
+  });
 }
 
 class _MockSync {
@@ -850,6 +1023,11 @@ class _MockSync {
   String? upsertResult;
   Future<String?> Function(Task)? upsertFn;
   String? lastDeletedId;
+
+  int linkStatusCalls = 0;
+  bool authorized = true;
+  final Map<String, TaskCalendarLinkStatus> linkStatusById = {};
+  Future<TaskCalendarLinkStatus> Function(String id)? linkStatusFn;
 
   Future<String?> upsert(Task t) async {
     upsertCalls++;
@@ -860,5 +1038,11 @@ class _MockSync {
   Future<void> delete(String id) async {
     deleteCalls++;
     lastDeletedId = id;
+  }
+
+  Future<TaskCalendarLinkStatus> linkStatus(String id) async {
+    linkStatusCalls++;
+    if (linkStatusFn != null) return linkStatusFn!(id);
+    return linkStatusById[id] ?? TaskCalendarLinkStatus.unknown;
   }
 }
