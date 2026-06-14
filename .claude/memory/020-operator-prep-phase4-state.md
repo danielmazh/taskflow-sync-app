@@ -1,0 +1,6 @@
+Date: 2026-06-14
+Insight: Operator-prep artifacts for Phase 4 launch generated under `docs/` (privacy-policy.html, index.html, oauth-consent.md, oauth-verification.md, play-listing.md, play-testing.md, RUNBOOK.md). Project: taskflow-sync-499408 (552734224992).
+Cloud state (read-only verified): Calendar API **not enabled**; IAM + Cloud Resource Manager APIs also not enabled. Service account `claude-dev-agent@…` authenticates for read-only checks only.
+OAuth clients: Web `…2hgq407fd6pp5elmov50kgqsi53a8jiu` ✓ → use as `serverClientId`. Second JSON is Desktop "installed" type, not Android — Android OAuth client (package + SHA-1) is API-invisible; must confirm/create in console with debug SHA-1 `B0:10:0F:60:A7:1A:DD:C3:8E:F7:B2:61:1E:1F:53:60:13:85:87:65`. Release SHA-1 awaits Play App Signing.
+Numbering: project uses 3-digit prefixes; skill defaults to 4-digit. Hand-rolled this slot per operator spec; slot 019 taken by coding agent (Phase 4 design).
+Rule: Before Phase 4 ships, operator must (a) enable Calendar API, (b) confirm Android OAuth client exists in console (create if missing), (c) replace `{{SUPPORT_EMAIL|HOMEPAGE_URL|PRIVACY_URL|AUTHORIZED_DOMAIN}}` placeholders across `docs/`, then host before any verification submission.

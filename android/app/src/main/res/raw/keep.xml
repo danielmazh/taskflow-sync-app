@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pin resources referenced from Dart strings only — R8's resource shrinker
+    (enabled by default for Flutter release builds) cannot see Dart references
+    and would otherwise strip them.
+    `ic_stat_taskflow` is the notification's small icon, passed by name to
+    flutter_local_notifications' AndroidInitializationSettings.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_taskflow"
+    tools:shrinkMode="safe" />

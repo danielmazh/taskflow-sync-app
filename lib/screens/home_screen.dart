@@ -1,0 +1,656 @@
+import 'package:flutter/material.dart';
+
+import '../models/task.dart';
+import '../services/calendar_sync_service.dart';
+import '../services/notification_service.dart';
+import '../services/task_parser.dart';
+import '../state/task_store.dart';
+import '../state/theme_controller.dart';
+import '../theme/app_theme.dart';
+import '../util/relative_date.dart';
+import '../util/undo_snackbar.dart';
+import '../widgets/add_task_sheet.dart';
+import '../widgets/task_card.dart';
+import '../widgets/voice_capture_sheet.dart';
+
+class HomeScreen extends StatefulWidget {
+  final TaskStore store;
+  final NotificationService? notifications;
+  final TaskParser parser;
+  final ThemeController? themeController;
+  final CalendarSyncService? calendarSync;
+  const HomeScreen({
+    super.key,
+    required this.store,
+    this.notifications,
+    this.parser = const PlainParser(),
+    this.themeController,
+    this.calendarSync,
+  });
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  Future<void> _openAddSheet() async {
+    final result = await showAddTaskSheet(context);
+    if (result == null) return;
+    widget.store.add(Task(
+      id: TaskStore.newId(),
+      title: result.title,
+      note: result.note,
+      dueAt: result.dueAt,
+    ));
+    if (result.dueAt != null &&
+        widget.notifications != null &&
+        mounted) {
+      await widget.notifications!.maybeRequestBatteryExemption(context);
+    }
+  }
+
+  Future<void> _openVoiceCapture() async {
+    final spoken = await showVoiceCaptureSheet(context);
+    if (spoken == null || spoken.isEmpty) return;
+    final task = widget.parser.parse(spoken);
+    if (task.title.isEmpty) return;
+    widget.store.add(task);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Added: ${task.title}')),
+    );
+  }
+
+  void _onToggle(Task task) {
+    final wasIncomplete = !task.isDone;
+    widget.store.toggle(task.id);
+    if (wasIncomplete) {
+      showUndoSnackBar(
+        context,
+        message: 'Completed "${_ellipsize(task.title)}"',
+        onUndo: () => widget.store.toggle(task.id),
+      );
+    }
+  }
+
+  void _onDelete(Task task) {
+    final snapshot = Task(
+      id: task.id,
+      title: task.title,
+      note: task.note,
+      dueAt: task.dueAt,
+      isDone: task.isDone,
+      snoozedUntil: task.snoozedUntil,
+      completedAt: task.completedAt,
+    );
+    widget.store.delete(task.id);
+    showUndoSnackBar(
+      context,
+      message: 'Deleted "${_ellipsize(snapshot.title)}"',
+      onUndo: () => widget.store.add(snapshot),
+    );
+  }
+
+  static String _ellipsize(String s, [int max = 36]) =>
+      s.length <= max ? s : '${s.substring(0, max - 1)}…';
+
+  Future<void> _openEditSheet(Task task) async {
+    final result = await showAddTaskSheet(context, initial: task);
+    if (result == null) return;
+    widget.store.update(
+      id: task.id,
+      title: result.title,
+      note: result.note,
+      dueAt: result.dueAt,
+    );
+    if (result.dueAt != null &&
+        widget.notifications != null &&
+        mounted) {
+      await widget.notifications!.maybeRequestBatteryExemption(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('TaskFlow Sync'),
+        actions: [
+          if (widget.calendarSync != null)
+            _CalendarMenuButton(service: widget.calendarSync!),
+          if (widget.themeController != null)
+            _ThemeMenuButton(controller: widget.themeController!),
+          IconButton(
+            tooltip: 'Add by voice',
+            onPressed: _openVoiceCapture,
+            icon: const Icon(Icons.mic_none_outlined),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+        ],
+      ),
+      body: ListenableBuilder(
+        listenable: widget.store,
+        builder: (context, _) {
+          final now = DateTime.now();
+          final activeTasks =
+              widget.store.tasks.where((t) => !t.isDone).toList();
+          if (activeTasks.isEmpty) {
+            final hasAnyTask = widget.store.tasks.isNotEmpty;
+            return hasAnyTask
+                ? const _EmptyState.allDone()
+                : const _EmptyState.nothingYet();
+          }
+          final grouped = _group(activeTasks, now);
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: _SummaryLine(
+                  overdue: grouped.overdue.length,
+                  dueToday: grouped.today.length,
+                ),
+              ),
+              ..._sectionSliver(
+                title: 'Overdue',
+                tasks: grouped.overdue,
+                now: now,
+                tone: _SectionTone.danger,
+              ),
+              ..._sectionSliver(
+                title: 'Today',
+                tasks: grouped.today,
+                now: now,
+              ),
+              ..._sectionSliver(
+                title: 'Upcoming',
+                tasks: grouped.upcoming,
+                now: now,
+              ),
+              ..._sectionSliver(
+                title: 'No date',
+                tasks: grouped.noDate,
+                now: now,
+              ),
+              const SliverPadding(
+                padding: EdgeInsets.only(bottom: 96),
+              ),
+            ],
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openAddSheet,
+        tooltip: 'Add task',
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  List<Widget> _sectionSliver({
+    required String title,
+    required List<Task> tasks,
+    required DateTime now,
+    _SectionTone tone = _SectionTone.normal,
+  }) {
+    if (tasks.isEmpty) return const [];
+    return [
+      SliverToBoxAdapter(
+        child: _SectionHeader(title: title, count: tasks.length, tone: tone),
+      ),
+      SliverList.builder(
+        itemCount: tasks.length,
+        itemBuilder: (context, i) {
+          final task = tasks[i];
+          return _TaskRowDismissible(
+            task: task,
+            now: now,
+            onTap: () => _openEditSheet(task),
+            onToggle: () => _onToggle(task),
+            onDelete: () => _onDelete(task),
+          );
+        },
+      ),
+    ];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme menu
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ThemeMenuButton extends StatelessWidget {
+  final ThemeController controller;
+  const _ThemeMenuButton({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final mode = controller.mode;
+        final icon = switch (mode) {
+          ThemeMode.light => Icons.light_mode_outlined,
+          ThemeMode.dark => Icons.dark_mode_outlined,
+          ThemeMode.system => Icons.brightness_auto_outlined,
+        };
+        return PopupMenuButton<ThemeMode>(
+          tooltip: 'Theme',
+          icon: Icon(icon),
+          onSelected: controller.setMode,
+          itemBuilder: (ctx) => [
+            _menuItem(ctx, ThemeMode.system, 'System', Icons.brightness_auto_outlined, mode),
+            _menuItem(ctx, ThemeMode.light, 'Light', Icons.light_mode_outlined, mode),
+            _menuItem(ctx, ThemeMode.dark, 'Dark', Icons.dark_mode_outlined, mode),
+          ],
+        );
+      },
+    );
+  }
+
+  PopupMenuItem<ThemeMode> _menuItem(
+    BuildContext context,
+    ThemeMode value,
+    String label,
+    IconData icon,
+    ThemeMode current,
+  ) {
+    final selected = value == current;
+    final scheme = Theme.of(context).colorScheme;
+    return PopupMenuItem<ThemeMode>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: selected ? scheme.primary : scheme.muted),
+          const SizedBox(width: AppSpacing.md),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              color: selected ? scheme.primary : null,
+            ),
+          ),
+          const Spacer(),
+          if (selected)
+            Icon(Icons.check_rounded, size: 18, color: scheme.primary),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grouping (active tasks only — completed lives in Archive)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _Grouped {
+  final List<Task> overdue;
+  final List<Task> today;
+  final List<Task> upcoming;
+  final List<Task> noDate;
+  const _Grouped({
+    required this.overdue,
+    required this.today,
+    required this.upcoming,
+    required this.noDate,
+  });
+}
+
+_Grouped _group(List<Task> tasks, DateTime now) {
+  final overdue = <Task>[];
+  final today = <Task>[];
+  final upcoming = <Task>[];
+  final noDate = <Task>[];
+
+  for (final t in tasks) {
+    switch (bucketFor(effectiveDueAt: t.effectiveDueAt, now: now)) {
+      case DueBucket.overdue:
+        overdue.add(t);
+      case DueBucket.today:
+        today.add(t);
+      case DueBucket.upcoming:
+        upcoming.add(t);
+      case DueBucket.none:
+        noDate.add(t);
+    }
+  }
+
+  int byDue(Task a, Task b) =>
+      (a.effectiveDueAt ?? DateTime(9999)).compareTo(
+        b.effectiveDueAt ?? DateTime(9999),
+      );
+  overdue.sort(byDue);
+  today.sort(byDue);
+  upcoming.sort(byDue);
+  return _Grouped(
+    overdue: overdue,
+    today: today,
+    upcoming: upcoming,
+    noDate: noDate,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summary line
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SummaryLine extends StatelessWidget {
+  final int overdue;
+  final int dueToday;
+  const _SummaryLine({required this.overdue, required this.dueToday});
+
+  @override
+  Widget build(BuildContext context) {
+    if (overdue == 0 && dueToday == 0) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final spans = <InlineSpan>[];
+    if (overdue > 0) {
+      spans.add(TextSpan(
+        text: '$overdue overdue',
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: scheme.danger,
+          fontWeight: FontWeight.w600,
+        ),
+      ));
+    }
+    if (dueToday > 0) {
+      if (spans.isNotEmpty) {
+        spans.add(TextSpan(
+          text: ' · ',
+          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.muted),
+        ));
+      }
+      spans.add(TextSpan(
+        text: '$dueToday due today',
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: scheme.muted,
+          fontWeight: FontWeight.w500,
+        ),
+      ));
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.xs,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
+      child: Text.rich(TextSpan(children: spans)),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section header
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum _SectionTone { normal, danger, muted }
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final _SectionTone tone;
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    this.tone = _SectionTone.normal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = switch (tone) {
+      _SectionTone.danger => scheme.danger,
+      _SectionTone.muted => scheme.muted,
+      _SectionTone.normal => scheme.onSurface,
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: color,
+              letterSpacing: 0.4,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(
+            '$count',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: scheme.muted,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dismissible row wrapper
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TaskRowDismissible extends StatelessWidget {
+  final Task task;
+  final DateTime now;
+  final VoidCallback onTap;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
+  const _TaskRowDismissible({
+    required this.task,
+    required this.now,
+    required this.onTap,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: ValueKey(task.id),
+      direction: DismissDirection.endToStart,
+      background: const _DismissBackground(),
+      onDismissed: (_) => onDelete(),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        builder: (context, t, child) => Opacity(opacity: t, child: child),
+        child: InkWell(
+          onTap: onTap,
+          child: TaskCard(
+            task: task,
+            onToggle: onToggle,
+            now: now,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DismissBackground extends StatelessWidget {
+  const _DismissBackground();
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      alignment: Alignment.centerRight,
+      color: scheme.errorContainer,
+      child: Icon(
+        Icons.delete_outline,
+        color: scheme.onErrorContainer,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty states
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String headline;
+  final String hint;
+  const _EmptyState({
+    required this.icon,
+    required this.headline,
+    required this.hint,
+  });
+  const _EmptyState.nothingYet()
+      : icon = Icons.checklist_rounded,
+        headline = 'No tasks yet',
+        hint = 'Tap + to add one, or the mic to dictate.';
+  const _EmptyState.allDone()
+      : icon = Icons.task_alt_rounded,
+        headline = 'All done',
+        hint = 'Nothing left for now — completed tasks live in Archive.';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isAllDone = headline == 'All done';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 64,
+              color: isAllDone ? scheme.primary : scheme.muted,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              headline,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              hint,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.muted,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Google Calendar connection menu
+// ─────────────────────────────────────────────────────────────────────────────
+class _CalendarMenuButton extends StatelessWidget {
+  final CalendarSyncService service;
+  const _CalendarMenuButton({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<CalendarConnection>(
+      valueListenable: service.connection,
+      builder: (context, conn, _) {
+        final iconColor = conn.authorized ? scheme.primary : scheme.onSurfaceVariant;
+        return PopupMenuButton<String>(
+          tooltip: conn.authorized
+              ? 'Google Calendar — connected'
+              : 'Connect Google Calendar',
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(Icons.event_available_outlined, color: iconColor),
+              if (conn.authorized)
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: scheme.surface, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          onSelected: (v) async {
+            switch (v) {
+              case 'connect':
+                await service.connect();
+                break;
+              case 'disconnect':
+                await service.disconnect();
+                break;
+            }
+          },
+          itemBuilder: (context) {
+            if (conn.authorized) {
+              return [
+                PopupMenuItem<String>(
+                  enabled: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Google Calendar',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        conn.email ?? '',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.muted,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(
+                  value: 'disconnect',
+                  child: ListTile(
+                    leading: Icon(Icons.link_off),
+                    title: Text('Disconnect'),
+                    dense: true,
+                  ),
+                ),
+              ];
+            }
+            return const [
+              PopupMenuItem<String>(
+                value: 'connect',
+                child: ListTile(
+                  leading: Icon(Icons.link),
+                  title: Text('Connect Google Calendar'),
+                  subtitle: Text('Export dated tasks as events'),
+                  dense: true,
+                ),
+              ),
+            ];
+          },
+        );
+      },
+    );
+  }
+}
