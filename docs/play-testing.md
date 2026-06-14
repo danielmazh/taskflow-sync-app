@@ -13,7 +13,7 @@ Console path: **Play Console → All apps → TaskFlow Sync → Testing → Clos
 - [ ] First AAB uploaded to the closed track. **Use Play App Signing** (Google recommendation; required for new apps since Aug 2021). Capture the **App Signing SHA-1** from Play Console → Setup → App signing — you will need it for the Android OAuth client.
 - [ ] Pre-launch report shows no crashes or critical warnings.
 - [ ] Store listing + data safety + content rating + target audience are all complete (drafts are fine but the track must be set up).
-- [ ] Privacy policy is live at `https://danielmazh.github.io/taskflow-sync-app/privacy-policy.html`.
+- [ ] Privacy policy is live at `https://taskflowsync.xyz/privacy-policy.html`.
 
 ---
 
