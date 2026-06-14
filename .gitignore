@@ -55,3 +55,10 @@ app.*.map.json
 
 # Operator scratch / handoff files (never sweep into commits)
 .claude/tmp/
+
+# Release signing — keystore + property file MUST never be committed.
+# The keystore lives outside the repo (operator-owned). key.properties is
+# project-local but contains the store password / key password.
+/android/key.properties
+*.jks
+*.keystore
