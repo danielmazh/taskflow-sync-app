@@ -55,6 +55,23 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Build-time launcher-icon generator (Phase 6). Ships nothing in the app.
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher-icon generation. Run with:
+#   source .tools/env.sh && dart run flutter_launcher_icons
+# Source SVGs live under assets/icon/; the 1024×1024 PNGs in
+# assets/icon/generated/ are produced by the project-local rsvg/resvg
+# rasterizer (see .tools/bin/resvg) so we never upscale a raster master.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/generated/app-icon-1024.png"
+  adaptive_icon_background: "#3F51B5"
+  adaptive_icon_foreground: "assets/icon/generated/app-icon-foreground-1024.png"
+  min_sdk_android: 24
+  remove_alpha_ios: false
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

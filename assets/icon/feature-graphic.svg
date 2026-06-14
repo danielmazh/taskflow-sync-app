@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <rect width="1024" height="500" fill="#3F51B5"/>
+  <!-- Icon glyph: scale the master check to ~280px tall, centered vertically, left margin 80. -->
+  <g transform="translate(80 110) scale(0.28)">
+    <polyline points="300,545 452,690 745,344"
+              fill="none" stroke="#FFFFFF" stroke-width="92"
+              stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- Wordmark + tagline. Conservative sizing measured against Helvetica Neue
+       Bold so it never clips. -->
+  <text x="400" y="245" font-family="sans-serif" font-size="76" font-weight="700"
+        fill="#FFFFFF" letter-spacing="-1">TaskFlow Sync</text>
+  <text x="402" y="295" font-family="sans-serif" font-size="22" font-weight="400"
+        fill="#FFFFFF" opacity="0.85" letter-spacing="3">OFFLINE TASKS · CALENDAR EXPORT</text>
+</svg>
