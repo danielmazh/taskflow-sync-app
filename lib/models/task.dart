@@ -9,6 +9,10 @@ class Task {
   /// Google Calendar event id linked to this task (one-way export). Null when
   /// the task is not (yet) mirrored to a calendar event.
   String? calendarEventId;
+  /// Free-form single-label tag. Null or empty/whitespace means "unlabeled".
+  /// Stored trimmed; compared and de-duplicated case-insensitively but the
+  /// first-seen casing is preserved for display.
+  String? label;
 
   Task({
     required this.id,
@@ -19,6 +23,7 @@ class Task {
     this.snoozedUntil,
     this.completedAt,
     this.calendarEventId,
+    this.label,
   });
 
   DateTime? get effectiveDueAt => snoozedUntil ?? dueAt;
@@ -32,6 +37,7 @@ class Task {
         'snoozedUntil': snoozedUntil?.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
         'calendarEventId': calendarEventId,
+        'label': label,
       };
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
@@ -51,5 +57,7 @@ class Task {
         // Pre-Phase-4 tasks lack this field; null means "not mirrored to
         // Google Calendar (yet)" — same as a never-synced task.
         calendarEventId: j['calendarEventId'] as String?,
+        // Pre-Phase-7 tasks lack this field; null = "unlabeled".
+        label: j['label'] as String?,
       );
 }

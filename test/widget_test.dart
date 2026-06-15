@@ -682,6 +682,97 @@ void main() {
     });
   });
 
+  group('Task.label (Phase 7a)', () {
+    test('fromJson with missing key → null (legacy persisted task loads)', () {
+      // Simulate a pre-Phase-7 saved task — no label field at all.
+      final legacy = {
+        'id': 't1',
+        'title': 'legacy',
+        'isDone': false,
+      };
+      final t = Task.fromJson(legacy);
+      expect(t.label, isNull);
+    });
+    test('toJson includes label field when set', () {
+      final t = Task(id: 'x', title: 't', label: 'Work');
+      expect(t.toJson()['label'], 'Work');
+    });
+    test('round-trip with null label stays null', () {
+      final t = Task(id: 'x', title: 't');
+      final back = Task.fromJson(t.toJson());
+      expect(back.label, isNull);
+    });
+    test('round-trip with set label preserves it', () {
+      final t = Task(id: 'x', title: 't', label: 'Errands');
+      final back = Task.fromJson(t.toJson());
+      expect(back.label, 'Errands');
+    });
+  });
+
+  group('TaskStore.labels (Phase 7a)', () {
+    test('returns distinct case-insensitive labels, sorted, first-seen casing',
+        () {
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'one', label: 'Work'),
+        Task(id: 'b', title: 'two', label: 'errands'),
+        Task(id: 'c', title: 'three', label: 'WORK'),
+        Task(id: 'd', title: 'four', label: 'Errands'),
+        Task(id: 'e', title: 'five'), // null
+        Task(id: 'f', title: 'six', label: '   '), // whitespace = unlabeled
+        Task(id: 'g', title: 'seven', label: 'Home'),
+      ]);
+      // Sorted alphabetically (case-insensitive), first-seen casing preserved.
+      expect(store.labels, ['errands', 'Home', 'Work']);
+    });
+    test('empty when no tasks have labels', () {
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'one'),
+        Task(id: 'b', title: 'two', label: ''),
+        Task(id: 'c', title: 'three', label: '   '),
+      ]);
+      expect(store.labels, isEmpty);
+    });
+    test('update(label: …) sets and clears the label', () {
+      final store = TaskStore(seed: [Task(id: 'a', title: 'one')]);
+      store.update(id: 'a', title: 'one', label: 'Home');
+      expect(store.tasks.single.label, 'Home');
+      store.update(id: 'a', title: 'one', label: null);
+      expect(store.tasks.single.label, isNull);
+    });
+
+    testWidgets('TaskCard renders the label chip when set, hides otherwise',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'with label', label: 'Errands'),
+        Task(id: 'b', title: 'no label'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      // Label text appears once — only for the labeled task.
+      expect(find.text('Errands'), findsOneWidget);
+    });
+
+    testWidgets('Swipe-to-delete then UNDO preserves the label',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        Task(id: 'k', title: 'Pack lunch', label: 'Home'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+
+      // Swipe end-to-start to dismiss.
+      await tester.drag(find.text('Pack lunch'), const Offset(-600, 0));
+      await tester.pumpAndSettle();
+      expect(store.tasks, isEmpty);
+
+      // Tap UNDO in the snackbar.
+      await tester.tap(find.text('UNDO'));
+      await tester.pumpAndSettle();
+      expect(store.tasks.length, 1);
+      expect(store.tasks.single.id, 'k');
+      expect(store.tasks.single.label, 'Home');
+    });
+  });
+
   group('TaskStore — explicit calendar export (Phase 4b)', () {
     test('add(dated) does NOT call upsert (no auto-sync)', () async {
       final mock = _MockSync();

@@ -40,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await showAddTaskSheet(
       context,
       calendarAvailable: _calendarAvailable,
+      knownLabels: widget.store.labels,
     );
     if (result == null) return;
     final newId = TaskStore.newId();
@@ -48,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
       title: result.title,
       note: result.note,
       dueAt: result.dueAt,
+      label: result.label,
     ));
     if (result.dueAt != null &&
         widget.notifications != null &&
@@ -120,6 +122,9 @@ class _HomeScreenState extends State<HomeScreen> {
       isDone: task.isDone,
       snoozedUntil: task.snoozedUntil,
       completedAt: task.completedAt,
+      // calendarEventId intentionally omitted — store.delete tears down the
+      // remote event, so on undo the task is a fresh (unlinked) instance.
+      label: task.label,
     );
     widget.store.delete(task.id);
     showUndoSnackBar(
@@ -137,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       initial: task,
       calendarAvailable: _calendarAvailable,
+      knownLabels: widget.store.labels,
     );
     if (result == null) return;
     widget.store.update(
@@ -144,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       title: result.title,
       note: result.note,
       dueAt: result.dueAt,
+      label: result.label,
     );
     if (result.dueAt != null &&
         widget.notifications != null &&

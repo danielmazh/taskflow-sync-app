@@ -216,3 +216,25 @@ Later, swap `PlainParser` for an implementation that calls an LLM and returns a 
 | First fully usable app | End of Phase 1 |
 
 Buildable, maintainable, and understandable by a single developer — while still delivering the core: tasks + exact reminders + snooze.
+
+---
+
+## Phase 7 — Task Labels (post-v1, additive)
+
+Goal: free-form, single-label tagging on tasks, plus search and label-filtering, with labels reflected in statistics. Strictly additive — no new dependency, no new storage mechanism. Each slice runs and is visible on device.
+
+### Locked decisions (carry through every slice)
+- **One label per task.** `String? label` on `Task`. Multi-tag is an explicit non-goal.
+- **Unlabeled = null or empty/whitespace.** No chip is rendered for unlabeled tasks; "Unlabeled" only appears as an explicit choice in the filter UI and stats breakdown.
+- **Stored as typed but trimmed.** Dedup and match **case-insensitively**, preserving the first-seen casing for display.
+- **Filter + search are view state** in `HomeScreen` — never in `TaskStore`, never persisted. `TaskStore` stays a pure data holder; it gains only a `labels` getter for the distinct in-use labels.
+- **Search spans all tasks** (active + completed), case-insensitive substring over title + note + label.
+- **Stats per-label** reuses the existing pure `StatsData` over per-label subsets (plus an "Unlabeled" bucket).
+- **Out of scope:** calendar sync, notifications, voice `TaskParser` — none change behavior. Pure, widget-free helpers for search and per-label stats so they are unit-testable.
+- **Backward compatibility:** pre-feature tasks lack the field; `fromJson` defaults `label` to null safely (mirrors the existing `calendarEventId` / `completedAt` pattern).
+
+### Slices
+- **7a — Label capture + display.** `Task.label` (model + JSON back-compat); add-task sheet gains a free-form label field with reuse suggestions (Flutter's built-in Autocomplete sourced from `TaskStore.labels`, no new dep); `TaskStore.update(label)` and `TaskStore.labels` getter; `TaskCard` shows a small label chip when present; `HomeScreen` wires label through add/edit/undo and feeds `knownLabels` to the sheet.
+- **7b — Filter home by label.** HomeScreen-only `String? _activeLabel` view state. A horizontal `ChoiceChip` strip (mirroring the quick-date chip pattern) above the list when ≥1 label exists, with **All / <labels…> / Unlabeled**. Filter `activeTasks` before `_group`. Empty-state copy for "no tasks with this label."
+- **7c — Search.** Top-bar search `IconButton` → Flutter `showSearch` + a `SearchDelegate` (no new dep). Pure helper `searchTasks(tasks, query)` in `lib/util/` (case-insensitive substring over title + note + label), unit-tested. Results span all tasks and reuse `TaskCard` (tap → open edit sheet; done state visible).
+- **7d — Labels in statistics.** Extend the pure `StatsData` (`lib/util/stats_data.dart`) with a per-label summary (label, active, completed, on-time %), computed by reusing `StatsData.from` over per-label subsets including an "Unlabeled" bucket. Add a "By label" section to `statistics_screen.dart`. Unit-test the per-label aggregation.
