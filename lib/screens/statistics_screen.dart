@@ -18,12 +18,14 @@ class StatisticsScreen extends StatelessWidget {
       body: ListenableBuilder(
         listenable: store,
         builder: (context, _) {
-          final stats = StatsData.from(store.tasks, DateTime.now());
+          final now = DateTime.now();
+          final stats = StatsData.from(store.tasks, now);
           final bucket = bucketForOnTime(
             hasData: stats.hasOnTimeData,
             pct: stats.onTimePct,
           );
           final motivational = motivationalSession.lineFor(bucket);
+          final byLabel = labelStatsFrom(store.tasks, now);
           return ListView(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,
@@ -39,6 +41,10 @@ class StatisticsScreen extends StatelessWidget {
               _OutcomesRing(stats: stats),
               const SizedBox(height: AppSpacing.xl),
               _WeeklyBars(stats: stats),
+              if (byLabel.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xl),
+                _ByLabelCard(rows: byLabel),
+              ],
             ],
           );
         },
@@ -540,5 +546,84 @@ String _weeklySemanticsLabel(StatsData stats) {
   }
   if (parts.isEmpty) return 'No completions this week.';
   return 'This week: ${parts.join(', ')}.';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// By label — per-label breakdown card (Phase 7d)
+// ─────────────────────────────────────────────────────────────────────────────
+class _ByLabelCard extends StatelessWidget {
+  final List<LabelStat> rows;
+  const _ByLabelCard({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('By label', style: theme.textTheme.titleMedium),
+          const SizedBox(height: AppSpacing.md),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _LabelStatRow(row: rows[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LabelStatRow extends StatelessWidget {
+  final LabelStat row;
+  const _LabelStatRow({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final pct = row.hasOnTimeData ? '${row.onTimePct}% on-time' : '— on-time';
+    final summary = '${row.active} active · ${row.completed} done · $pct';
+    final labelStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: row.isUnlabeled ? scheme.muted : scheme.onSurface,
+      fontWeight: FontWeight.w600,
+      fontStyle: row.isUnlabeled ? FontStyle.italic : FontStyle.normal,
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(
+          row.isUnlabeled ? Icons.label_off_outlined : Icons.label_outline,
+          size: 16,
+          color: scheme.muted,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          flex: 2,
+          child: Text(
+            row.label,
+            style: labelStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          flex: 3,
+          child: Text(
+            summary,
+            textAlign: TextAlign.right,
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.muted),
+          ),
+        ),
+      ],
+    );
+  }
 }
 

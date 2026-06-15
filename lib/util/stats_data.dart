@@ -85,3 +85,89 @@ class StatsData {
     );
   }
 }
+
+/// One row in the per-label breakdown on the Statistics page.
+///
+/// Each row is built by running [StatsData.from] over the tasks that share a
+/// (case-insensitively-deduped, trimmed) label — so on-time math is the same
+/// engine that powers the global donut. There is no parallel stats path.
+class LabelStat {
+  /// Display string. Real labels carry their first-seen casing; the
+  /// untagged bucket uses 'Unlabeled' as its display.
+  final String label;
+  final bool isUnlabeled;
+  final int active;
+  final int completed;
+  final int onTimePct;
+  final bool hasOnTimeData;
+
+  const LabelStat({
+    required this.label,
+    required this.isUnlabeled,
+    required this.active,
+    required this.completed,
+    required this.onTimePct,
+    required this.hasOnTimeData,
+  });
+}
+
+/// Pure widget-free per-label breakdown. Groups [tasks] by trimmed,
+/// case-insensitively-deduped label (first-seen casing preserved for
+/// display), runs [StatsData.from] on each subset, and returns the rows
+/// in alphabetical order followed by an 'Unlabeled' bucket when both
+/// (a) at least one real label exists and (b) at least one task is
+/// untagged. Returns `const []` when there are no tasks at all, or when
+/// every task is unlabeled (the screen has nothing meaningful to break
+/// down in that case).
+List<LabelStat> labelStatsFrom(List<Task> tasks, DateTime now) {
+  if (tasks.isEmpty) return const [];
+
+  final groups = <String, _LabelGroup>{};
+  final unlabeled = <Task>[];
+
+  for (final t in tasks) {
+    final raw = t.label?.trim();
+    if (raw == null || raw.isEmpty) {
+      unlabeled.add(t);
+      continue;
+    }
+    final key = raw.toLowerCase();
+    final g = groups.putIfAbsent(key, () => _LabelGroup(display: raw));
+    g.tasks.add(t);
+  }
+
+  if (groups.isEmpty) return const [];
+
+  final keys = groups.keys.toList()..sort();
+  final out = <LabelStat>[];
+  for (final k in keys) {
+    final g = groups[k]!;
+    final s = StatsData.from(g.tasks, now);
+    out.add(LabelStat(
+      label: g.display,
+      isUnlabeled: false,
+      active: s.active,
+      completed: s.completed,
+      onTimePct: s.onTimePct,
+      hasOnTimeData: s.hasOnTimeData,
+    ));
+  }
+  if (unlabeled.isNotEmpty) {
+    final s = StatsData.from(unlabeled, now);
+    out.add(LabelStat(
+      label: 'Unlabeled',
+      isUnlabeled: true,
+      active: s.active,
+      completed: s.completed,
+      onTimePct: s.onTimePct,
+      hasOnTimeData: s.hasOnTimeData,
+    ));
+  }
+  return out;
+}
+
+class _LabelGroup {
+  final String display;
+  final List<Task> tasks = [];
+  _LabelGroup({required this.display});
+}
