@@ -8,6 +8,7 @@ import '../state/task_store.dart';
 import '../state/theme_controller.dart';
 import '../theme/app_theme.dart';
 import '../util/relative_date.dart';
+import '../util/task_search.dart';
 import '../util/undo_snackbar.dart';
 import '../widgets/add_task_sheet.dart';
 import '../widgets/task_card.dart';
@@ -137,6 +138,17 @@ class _HomeScreenState extends State<HomeScreen> {
   static String _ellipsize(String s, [int max = 36]) =>
       s.length <= max ? s : '${s.substring(0, max - 1)}…';
 
+  Future<void> _openSearch() async {
+    final picked = await showSearch<Task?>(
+      context: context,
+      delegate: _TaskSearchDelegate(store: widget.store),
+    );
+    if (picked == null || !mounted) return;
+    // showSearch popped its own route; reopen the edit sheet on this screen so
+    // the user can act on the result they picked.
+    await _openEditSheet(picked);
+  }
+
   Future<void> _openEditSheet(Task task) async {
     final result = await showAddTaskSheet(
       context,
@@ -169,6 +181,11 @@ class _HomeScreenState extends State<HomeScreen> {
             _AccountButton(service: widget.calendarSync!),
           if (widget.themeController != null)
             _ThemeMenuButton(controller: widget.themeController!),
+          IconButton(
+            tooltip: 'Search tasks',
+            onPressed: _openSearch,
+            icon: const Icon(Icons.search),
+          ),
           IconButton(
             tooltip: 'Add by voice',
             onPressed: _openVoiceCapture,
@@ -934,5 +951,106 @@ class _AccountAvatar extends StatelessWidget {
     final first = parts.first[0];
     final second = parts.length > 1 ? parts.elementAt(1)[0] : '';
     return (first + second).toUpperCase();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search (Phase 7c) — Flutter's built-in showSearch + a SearchDelegate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Searches every task in the store (active AND completed) via [searchTasks].
+/// Returns the tapped [Task] back to the caller — the caller is responsible
+/// for opening an edit sheet on it. Read-only rows: no toggle, no dismiss,
+/// no calendar trailing — that machinery belongs to the live list.
+class _TaskSearchDelegate extends SearchDelegate<Task?> {
+  final TaskStore store;
+  _TaskSearchDelegate({required this.store})
+      : super(searchFieldLabel: 'Search tasks');
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    if (query.isEmpty) return null;
+    return [
+      IconButton(
+        tooltip: 'Clear',
+        icon: const Icon(Icons.clear),
+        onPressed: () => query = '',
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      tooltip: 'Back',
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => close(context, null),
+    );
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) => _resultsBody(context);
+
+  @override
+  Widget buildResults(BuildContext context) => _resultsBody(context);
+
+  Widget _resultsBody(BuildContext context) {
+    if (query.trim().isEmpty) {
+      return const _SearchHint(
+        icon: Icons.search,
+        text: 'Type to search by title, note, or label.',
+      );
+    }
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final hits = searchTasks(store.tasks, query);
+        if (hits.isEmpty) {
+          return const _SearchHint(
+            icon: Icons.search_off,
+            text: 'No matches.',
+          );
+        }
+        return ListView.builder(
+          itemCount: hits.length,
+          itemBuilder: (context, i) {
+            final task = hits[i];
+            return InkWell(
+              onTap: () => close(context, task),
+              child: TaskCard(task: task),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SearchHint extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _SearchHint({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56, color: scheme.muted),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(color: scheme.muted),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

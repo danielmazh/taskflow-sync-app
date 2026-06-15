@@ -773,6 +773,70 @@ void main() {
     });
   });
 
+  group('HomeScreen search (Phase 7c)', () {
+    testWidgets(
+        'tapping search opens search; typing matches across all tasks incl. completed',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'Buy milk', label: 'Errands'),
+        Task(id: 'b', title: 'Push branch', label: 'Work'),
+        Task(
+          id: 'c',
+          title: 'Finalize archived report',
+          isDone: true,
+          note: 'leftover from last quarter',
+        ),
+        Task(id: 'd', title: 'Floss'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+
+      // Open search from the AppBar.
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+
+      // Empty-query hint visible.
+      expect(find.text('Type to search by title, note, or label.'),
+          findsOneWidget);
+
+      // Type a query that matches a COMPLETED task by note.
+      await tester.enterText(find.byType(TextField), 'leftover');
+      await tester.pumpAndSettle();
+      // Hits the completed task only.
+      expect(find.text('Finalize archived report'), findsOneWidget);
+      expect(find.text('Buy milk'), findsNothing);
+      expect(find.text('Push branch'), findsNothing);
+
+      // Clear and try a label query that matches an active task.
+      await tester.tap(find.byIcon(Icons.clear));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'work');
+      await tester.pumpAndSettle();
+      expect(find.text('Push branch'), findsOneWidget);
+
+      // Tap the result → search closes; edit sheet opens for that task.
+      await tester.tap(find.text('Push branch'));
+      await tester.pumpAndSettle();
+      // Sheet seeded with the picked task's title.
+      expect(find.widgetWithText(TextField, 'Push branch'), findsOneWidget);
+    });
+
+    testWidgets('no-match query shows the "No matches." hint',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'Buy milk'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'zzz_no_such_term');
+      await tester.pumpAndSettle();
+      expect(find.text('No matches.'), findsOneWidget);
+      expect(find.text('Buy milk'), findsNothing);
+    });
+  });
+
   group('TaskStore — explicit calendar export (Phase 4b)', () {
     test('add(dated) does NOT call upsert (no auto-sync)', () async {
       final mock = _MockSync();
