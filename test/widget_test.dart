@@ -12,6 +12,7 @@ import 'package:taskflow_sync/services/storage_service.dart';
 import 'package:taskflow_sync/services/task_parser.dart';
 import 'package:taskflow_sync/state/task_store.dart';
 import 'package:taskflow_sync/widgets/add_task_sheet.dart';
+import 'package:taskflow_sync/widgets/task_card.dart';
 import 'package:taskflow_sync/util/motivational_messages.dart';
 import 'package:taskflow_sync/util/relative_date.dart';
 import 'package:taskflow_sync/util/stats_data.dart';
@@ -747,8 +748,15 @@ void main() {
         Task(id: 'b', title: 'no label'),
       ]);
       await tester.pumpWidget(TaskFlowApp(store: store));
-      // Label text appears once — only for the labeled task.
-      expect(find.text('Errands'), findsOneWidget);
+      // Label text appears inside exactly one TaskCard (Phase 7b also surfaces
+      // the label in the filter strip — scope the expectation to the cards).
+      expect(
+        find.descendant(
+          of: find.byType(TaskCard),
+          matching: find.text('Errands'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Swipe-to-delete then UNDO preserves the label',
@@ -770,6 +778,134 @@ void main() {
       expect(store.tasks.length, 1);
       expect(store.tasks.single.id, 'k');
       expect(store.tasks.single.label, 'Home');
+    });
+  });
+
+  group('HomeScreen label filter strip (Phase 7b)', () {
+    // Common seed: three active tasks with three different label states.
+    List<Task> seedTasks() => [
+          Task(id: 'a', title: 'Buy milk', label: 'Errands'),
+          Task(id: 'b', title: 'Push branch', label: 'Work'),
+          Task(id: 'c', title: 'Floss'),
+        ];
+
+    testWidgets('strip hidden when no labels exist at all',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        Task(id: 'x', title: 'no-label-1'),
+        Task(id: 'y', title: 'no-label-2'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      // None of the strip chips are rendered.
+      expect(find.widgetWithText(ChoiceChip, 'All'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, 'Unlabeled'), findsNothing);
+      // The two unlabeled tasks are still visible.
+      expect(find.text('no-label-1'), findsOneWidget);
+      expect(find.text('no-label-2'), findsOneWidget);
+    });
+
+    testWidgets('strip shows All / labels / Unlabeled when labels exist',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: seedTasks());
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ChoiceChip, 'All'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Errands'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Work'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Unlabeled'), findsOneWidget);
+      // No filter yet — all three task titles visible.
+      expect(find.text('Buy milk'), findsOneWidget);
+      expect(find.text('Push branch'), findsOneWidget);
+      expect(find.text('Floss'), findsOneWidget);
+    });
+
+    testWidgets('tapping a label narrows the visible list',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: seedTasks());
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Work'));
+      await tester.pumpAndSettle();
+      expect(find.text('Push branch'), findsOneWidget);
+      expect(find.text('Buy milk'), findsNothing);
+      expect(find.text('Floss'), findsNothing);
+    });
+
+    testWidgets('Unlabeled chip isolates tasks with null/empty/whitespace label',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: [
+        ...seedTasks(),
+        Task(id: 'd', title: 'Whitespace label', label: '   '),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Unlabeled'));
+      await tester.pumpAndSettle();
+      expect(find.text('Floss'), findsOneWidget);
+      expect(find.text('Whitespace label'), findsOneWidget);
+      expect(find.text('Buy milk'), findsNothing);
+      expect(find.text('Push branch'), findsNothing);
+    });
+
+    testWidgets('All chip clears the filter and restores every task',
+        (WidgetTester tester) async {
+      final store = TaskStore(seed: seedTasks());
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Work'));
+      await tester.pumpAndSettle();
+      expect(find.text('Buy milk'), findsNothing);
+      await tester.tap(find.widgetWithText(ChoiceChip, 'All'));
+      await tester.pumpAndSettle();
+      expect(find.text('Buy milk'), findsOneWidget);
+      expect(find.text('Push branch'), findsOneWidget);
+      expect(find.text('Floss'), findsOneWidget);
+    });
+
+    testWidgets(
+        'empty-filtered state renders + Show all clears the filter',
+        (WidgetTester tester) async {
+      // Tasks have a label but none match the literal text "Unrelated".
+      // We simulate "all matches removed" by selecting Unlabeled when no
+      // unlabeled task exists.
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'Buy milk', label: 'Errands'),
+        Task(id: 'b', title: 'Push branch', label: 'Work'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Unlabeled'));
+      await tester.pumpAndSettle();
+      expect(find.text('No tasks with this label'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Show all'), findsOneWidget);
+      expect(find.text('Buy milk'), findsNothing);
+      // The strip stays visible so the user can pick another chip or clear.
+      expect(find.widgetWithText(ChoiceChip, 'All'), findsOneWidget);
+
+      // Tap "Show all".
+      await tester.tap(find.widgetWithText(TextButton, 'Show all'));
+      await tester.pumpAndSettle();
+      expect(find.text('No tasks with this label'), findsNothing);
+      expect(find.text('Buy milk'), findsOneWidget);
+    });
+
+    testWidgets('label match is case-insensitive', (WidgetTester tester) async {
+      // Task stores 'Work', another stores 'work' — strip dedups to one chip
+      // ("Work" — first-seen casing) and selecting it shows both.
+      final store = TaskStore(seed: [
+        Task(id: 'a', title: 'A', label: 'Work'),
+        Task(id: 'b', title: 'B', label: 'work'),
+      ]);
+      await tester.pumpWidget(TaskFlowApp(store: store));
+      await tester.pumpAndSettle();
+      // Only one Work chip is rendered.
+      expect(find.widgetWithText(ChoiceChip, 'Work'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'work'), findsNothing);
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Work'));
+      await tester.pumpAndSettle();
+      expect(find.text('A'), findsOneWidget);
+      expect(find.text('B'), findsOneWidget);
     });
   });
 
