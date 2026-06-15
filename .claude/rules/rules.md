@@ -84,3 +84,51 @@ Then **STOP** and wait for approval before the next phase.
 - **Numbering:** zero-padded sequential prefix matching this project's standard — `000-`, `001-`, … (same width as `planning/`). Read existing memory in numeric order at session start so you inherit prior context (per the CLAUDE.MD hierarchy).
 - **Use the bundled script, don't hand-roll the write.** If the skill isn't available in this project, or its prefix width doesn't match the 3-digit project standard, treat that as a tooling-alignment item and **halt + report**.
 - In addition to the per-phase report, save each phase's key decisions and any Tier-B resolution to memory.
+
+---
+
+## Release management & environments
+
+This section codifies how production and Claude-internal releases relate to the `master` / `pre-master` branches, so neither agent confuses them.
+
+### Branch roles (production vs. integration)
+
+- **`master` = Google Play production mirror.** It reflects exactly what is (or is about to be) live in the Play Store. **NEVER a development target.** No agent may commit to `master` directly, cut a feature branch off `master`, build a Claude-internal artifact from `master`, or treat `master` as a working trunk.
+  - `master` is updated **only** by a gated `pre-master → master` merge at the moment of an actual store release. The merge is operator-approved, executed by the git agent, and immediately followed by rebuilding and uploading the AAB to Play.
+  - Every production release MUST be tagged `prod-vX.Y.Z+N` on the `master` commit it ships from.
+- **`pre-master` = integration trunk.** All feature branches branch from it, and merge back into it `--no-ff` **only after the operator's on-device smoke test on the S25 Ultra (or current target device) passes**. Merges land chronologically — no reordering history to "tidy" a sequence; the order in which features pass the on-device gate is the order they enter `pre-master`.
+- **Feature branches** are short-lived, scoped to one change, named `feature/<short-kebab-name>`, and deleted (local + remote) immediately after their `--no-ff` merge into `pre-master`.
+
+### Approval gates
+
+- Any build whose **purpose** is to feed a `master` push (Play AAB upload, production-tagged APK, production verification build) **requires explicit operator approval** before the build is started. The operator approves the *intent to release*, not just the push.
+- Any `git push origin master` (and any push that would advance `master` — fast-forward, merge, or tag) **requires explicit operator approval** at the moment of push. A standing approval from earlier in the session does not count.
+- No agent may force-push `master` or `pre-master`, ever. If a `master` push is rejected by the remote, halt and report — never `--force` / `--force-with-lease` on a trunk.
+- An on-device pass on the S25 Ultra (or whatever device the operator names for the current cycle) is a hard prerequisite for any `feature/* → pre-master` merge. Tests + analyze green is necessary but not sufficient.
+
+### Claude / local-test releases
+
+Claude builds release artifacts for the operator to sideload — never for the Store directly.
+
+- Workflow:
+  1. On `pre-master` (or a release-specific feature branch off `pre-master`), bump the version in `pubspec.yaml` (see versionCode rule below).
+  2. `source .tools/env.sh && flutter build apk --release` — universal/fat APK signed by the upload keystore (verify the SHA-1 begins `6E:77:C3:89:…` per memory 029/032, **not** `AndroidDebugKey`).
+  3. Copy the APK to `.claude/releases/taskflow-sync-<version>.apk`. This directory is **gitignored**; the binary **never** enters the repo (memory 017).
+  4. Tag the release commit `claude-vX.Y.Z+N` on `pre-master` once the bump merges in (or on the feature branch immediately before merge, then promote the tag).
+- Claude releases do **not** touch `master`. They never enter the Play Store. They exist exclusively for operator-side device testing.
+
+### versionCode discipline (Play rejects ties or decreases)
+
+- `versionCode` (`+N` in `pubspec.yaml`) is a single monotonic integer that increases by ≥1 on **every** build that could ever be uploaded or sideloaded — production, Claude release, hotfix, anything. Skipping numbers is allowed; reusing or lowering a number is not.
+- Production and Claude releases draw from the **same** integer sequence — there is no separate ladder. Treat any `+N` as globally consumed once any build with that code has left this workstation (or, conservatively, once it has been built).
+- `versionName` (`X.Y.Z`) follows ordinary semver and may stay constant across `+N` bumps (e.g. two Claude builds at `1.0.1+3` → `1.0.1+4` for an iteration fix).
+- The operator owns the canonical "last consumed `+N`" — when in doubt, ask, do not guess.
+
+### Persisted-state compatibility (no DB on purpose)
+
+- **The app's only persisted state is JSON in `shared_preferences`.** There is **no database** — no Drift, no SQLite, no Hive, no Isar — by design (the radical-simplicity principle, plan §8). Introducing one is an explicit, separate, Tier-B decision; never assume it.
+- Any change to a persisted shape must stay **backward-compatible**:
+  - Add new fields as **optional with a null/empty/falsey default in `fromJson`**. Pre-feature tasks must continue to load cleanly. The Phase-7 `Task.label` field is the model: `j['label'] as String?` with a comment explaining the back-compat default (and the mirroring `calendarEventId` / `completedAt` patterns from earlier phases).
+  - **Do not rename keys.** If a rename is unavoidable, ship a one-shot migration shim that reads the old key and writes the new one on next load, and keep the shim in place for at least one production release. Renames without a shim silently lose user data on update.
+  - **Do not remove keys** that an older build wrote, even if the new build no longer reads them — older app installs may still write them, and round-tripping must not drop them on disk. If a key is genuinely dead, remove the writer first, ship that release, and only then remove the reader in a later release.
+  - Any change that would force a wipe-and-reinstall is **Tier-B** — halt and ask.
