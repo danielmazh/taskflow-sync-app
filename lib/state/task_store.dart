@@ -95,6 +95,7 @@ class TaskStore extends ChangeNotifier {
     required String title,
     String? note,
     DateTime? dueAt,
+    String? label,
   }) {
     final i = _tasks.indexWhere((t) => t.id == id);
     if (i < 0) return;
@@ -102,11 +103,28 @@ class TaskStore extends ChangeNotifier {
     t.title = title;
     t.note = note;
     t.dueAt = dueAt;
+    t.label = label;
     // User reset the schedule — any prior snooze is stale.
     t.snoozedUntil = null;
     notifyListeners();
     _persist();
     _reconcile(t);
+  }
+
+  /// Distinct labels currently in use across all tasks, case-insensitively
+  /// de-duplicated (first-seen casing preserved) and sorted alphabetically.
+  /// Unlabeled tasks (null/empty/whitespace label) contribute nothing.
+  List<String> get labels {
+    final seen = <String, String>{};
+    for (final t in _tasks) {
+      final raw = t.label?.trim();
+      if (raw == null || raw.isEmpty) continue;
+      final key = raw.toLowerCase();
+      seen.putIfAbsent(key, () => raw);
+    }
+    final out = seen.values.toList();
+    out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return out;
   }
 
   void toggle(String id) {
@@ -251,17 +269,20 @@ List<Task> sampleSeed() {
       title: 'Buy groceries',
       note: 'Milk, bread, eggs',
       dueAt: today.add(const Duration(hours: 18, minutes: 30)),
+      label: 'Errands',
     ),
     Task(
       id: 'seed-2',
       title: 'Call the dentist',
       dueAt: today.add(const Duration(hours: 9)),
       isDone: true,
+      label: 'Health',
     ),
     Task(
       id: 'seed-3',
       title: 'Finish Flutter walking skeleton',
       note: 'Phase 0 of the plan',
+      label: 'Work',
     ),
     Task(
       id: 'seed-4',

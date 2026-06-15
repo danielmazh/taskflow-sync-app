@@ -68,6 +68,7 @@ class ArchiveScreen extends StatelessWidget {
       isDone: task.isDone,
       snoozedUntil: task.snoozedUntil,
       completedAt: task.completedAt,
+      label: task.label,
     );
     store.delete(task.id);
     final title =

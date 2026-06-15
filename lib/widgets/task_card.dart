@@ -46,6 +46,10 @@ class TaskCard extends StatelessWidget {
         done: task.isDone,
       ));
     }
+    final labelText = task.label?.trim();
+    if (labelText != null && labelText.isNotEmpty) {
+      metaParts.add(_LabelChip(text: labelText, done: task.isDone));
+    }
     if (task.note != null && task.note!.trim().isNotEmpty) {
       metaParts.add(_NoteHint(text: task.note!));
     }
@@ -162,6 +166,40 @@ class _DueChip extends StatelessWidget {
             fontWeight: overdue ? FontWeight.w600 : FontWeight.w500,
             decoration: done ? TextDecoration.lineThrough : null,
             decorationColor: scheme.muted,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LabelChip extends StatelessWidget {
+  final String text;
+  final bool done;
+  const _LabelChip({required this.text, required this.done});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.muted;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(Icons.label_outline, size: 14, color: color),
+        const SizedBox(width: 4),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 180),
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+              decoration: done ? TextDecoration.lineThrough : null,
+              decorationColor: color,
+            ),
           ),
         ),
       ],

@@ -8,6 +8,9 @@ class AddTaskSheetResult {
   final String title;
   final String? note;
   final DateTime? dueAt;
+  /// Free-form single label. Null when the user left the field empty
+  /// (unlabeled). Always trimmed.
+  final String? label;
   /// User asked to export this new task to Google Calendar. Only ever true
   /// from the add (not edit) flow and only when calendar export was offered
   /// (connected + authorized + a due time was selected). Home handles the
@@ -17,6 +20,7 @@ class AddTaskSheetResult {
     required this.title,
     this.note,
     this.dueAt,
+    this.label,
     this.addToCalendar = false,
   });
 }
@@ -25,6 +29,7 @@ Future<AddTaskSheetResult?> showAddTaskSheet(
   BuildContext context, {
   Task? initial,
   bool calendarAvailable = false,
+  List<String> knownLabels = const [],
 }) {
   return showModalBottomSheet<AddTaskSheetResult>(
     context: context,
@@ -40,6 +45,7 @@ Future<AddTaskSheetResult?> showAddTaskSheet(
         child: _AddTaskSheet(
           initial: initial,
           calendarAvailable: calendarAvailable,
+          knownLabels: knownLabels,
         ),
       ),
     ),
@@ -49,7 +55,12 @@ Future<AddTaskSheetResult?> showAddTaskSheet(
 class _AddTaskSheet extends StatefulWidget {
   final Task? initial;
   final bool calendarAvailable;
-  const _AddTaskSheet({this.initial, this.calendarAvailable = false});
+  final List<String> knownLabels;
+  const _AddTaskSheet({
+    this.initial,
+    this.calendarAvailable = false,
+    this.knownLabels = const [],
+  });
 
   @override
   State<_AddTaskSheet> createState() => _AddTaskSheetState();
@@ -58,6 +69,7 @@ class _AddTaskSheet extends StatefulWidget {
 class _AddTaskSheetState extends State<_AddTaskSheet> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _noteCtrl;
+  late final TextEditingController _labelCtrl;
   late final FocusNode _titleFocus;
   DateTime? _dueAt;
   bool _addToCalendar = false;
@@ -74,6 +86,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
     super.initState();
     _titleCtrl = TextEditingController(text: widget.initial?.title ?? '');
     _noteCtrl = TextEditingController(text: widget.initial?.note ?? '');
+    _labelCtrl = TextEditingController(text: widget.initial?.label ?? '');
     _titleFocus = FocusNode();
     _dueAt = widget.initial?.dueAt;
     // Auto-focus on the title on new-task only — editing already has content.
@@ -88,6 +101,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
   void dispose() {
     _titleCtrl.dispose();
     _noteCtrl.dispose();
+    _labelCtrl.dispose();
     _titleFocus.dispose();
     super.dispose();
   }
@@ -140,14 +154,24 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) return;
     final note = _noteCtrl.text.trim();
+    final label = _labelCtrl.text.trim();
     Navigator.of(context).pop(
       AddTaskSheetResult(
         title: title,
         note: note.isEmpty ? null : note,
         dueAt: _dueAt,
+        label: label.isEmpty ? null : label,
         addToCalendar: _calendarCheckboxEnabled && _addToCalendar,
       ),
     );
+  }
+
+  void _applyLabelSuggestion(String value) {
+    _labelCtrl.text = value;
+    _labelCtrl.selection =
+        TextSelection.collapsed(offset: value.length);
+    // Refresh chip selected states.
+    setState(() {});
   }
 
   void _applyQuick(DateTime when) {
@@ -199,6 +223,25 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _labelCtrl,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Label (optional)',
+              prefixIcon: Icon(Icons.label_outline),
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          if (widget.knownLabels.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _LabelSuggestions(
+              labels: widget.knownLabels,
+              current: _labelCtrl.text,
+              onPick: _applyLabelSuggestion,
+            ),
+          ],
           const SizedBox(height: 16),
           _DateRow(
             now: DateTime.now(),
@@ -343,6 +386,40 @@ class _DateRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Horizontally-scrollable chip strip showing labels already in use, so the
+/// user can tap to reuse one rather than retyping. The chip matching the
+/// current field value (case-insensitive) renders selected.
+class _LabelSuggestions extends StatelessWidget {
+  final List<String> labels;
+  final String current;
+  final ValueChanged<String> onPick;
+  const _LabelSuggestions({
+    required this.labels,
+    required this.current,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final currentKey = current.trim().toLowerCase();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++) ...[
+            ChoiceChip(
+              label: Text(labels[i]),
+              selected: labels[i].toLowerCase() == currentKey,
+              onSelected: (_) => onPick(labels[i]),
+            ),
+            if (i != labels.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
     );
   }
 }
