@@ -96,16 +96,43 @@ class CalendarSyncService {
 
   /// User-initiated connect. Runs sign-in if needed, then requests the
   /// calendar.events scope. Idempotent — safe to call when already connected.
-  Future<void> connect() async {
+  ///
+  /// Returns a [ConnectResult] so the UI can show feedback instead of the
+  /// silent-swallow behaviour the service had before Phase 4d.
+  Future<ConnectResult> connect() async {
     if (!_signIn.supportsAuthenticate()) {
       debugPrint('CalendarSync: authenticate() unsupported on this platform.');
-      return;
+      return const ConnectResult(ConnectOutcome.platformUnsupported);
     }
+    GoogleSignInAccount user;
     try {
       // Always run sign-in to give the user a fresh chance to pick an account.
-      final user = await _signIn.authenticate();
+      user = await _signIn.authenticate();
       _currentUser = user;
-      // Request the calendar.events scope; throws / returns null if denied.
+    } on GoogleSignInException catch (e) {
+      final detail = '${e.code.name}: ${e.description ?? ''}'.trim();
+      debugPrint('CalendarSync sign-in failed: $detail');
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        return const ConnectResult(ConnectOutcome.canceled);
+      }
+      if (e.code == GoogleSignInExceptionCode.clientConfigurationError) {
+        return ConnectResult(
+          ConnectOutcome.signInClientConfigError,
+          detail: detail,
+        );
+      }
+      return ConnectResult(ConnectOutcome.signInFailed, detail: detail);
+    } catch (e, st) {
+      debugPrint('CalendarSync.connect (sign-in) failed: $e\n$st');
+      return ConnectResult(
+        ConnectOutcome.signInFailed,
+        detail: e.toString(),
+      );
+    }
+    // Sign-in succeeded — now request the calendar.events scope. The plugin
+    // throws GoogleSignInException(canceled) when the user backs out of the
+    // consent screen; success returns a non-nullable authorization.
+    try {
       await user.authorizationClient.authorizeScopes(_scopes);
       connection.value = CalendarConnection.connected(
         email: user.email,
@@ -114,14 +141,35 @@ class CalendarSyncService {
         authorized: true,
       );
       unawaited(saveConnectedFlag?.call(true));
+      return const ConnectResult(ConnectOutcome.signedInAndAuthorized);
     } on GoogleSignInException catch (e) {
+      final detail = '${e.code.name}: ${e.description ?? ''}'.trim();
+      debugPrint('CalendarSync authorize failed: $detail');
+      connection.value = CalendarConnection.connected(
+        email: user.email,
+        displayName: user.displayName,
+        photoUrl: user.photoUrl,
+        authorized: false,
+      );
       if (e.code == GoogleSignInExceptionCode.canceled) {
-        debugPrint('CalendarSync: sign-in canceled by user.');
-        return;
+        return const ConnectResult(ConnectOutcome.signedInScopeDenied);
       }
-      debugPrint('CalendarSync sign-in failed: ${e.code} ${e.description}');
+      return ConnectResult(
+        ConnectOutcome.authorizationFailed,
+        detail: detail,
+      );
     } catch (e, st) {
-      debugPrint('CalendarSync.connect failed: $e\n$st');
+      debugPrint('CalendarSync.connect (authorize) failed: $e\n$st');
+      connection.value = CalendarConnection.connected(
+        email: user.email,
+        displayName: user.displayName,
+        photoUrl: user.photoUrl,
+        authorized: false,
+      );
+      return ConnectResult(
+        ConnectOutcome.authorizationFailed,
+        detail: e.toString(),
+      );
     }
   }
 
@@ -297,3 +345,38 @@ class CalendarConnection {
 }
 
 enum EventLinkStatus { exists, gone, unknown }
+
+/// Outcome of an interactive [CalendarSyncService.connect] call. Surfaced to
+/// the UI so we never silently swallow auth failures the way the pre-4d
+/// service did.
+enum ConnectOutcome {
+  /// Signed in AND the calendar.events scope was granted.
+  signedInAndAuthorized,
+  /// Signed in but the user denied / closed the scope-consent step.
+  signedInScopeDenied,
+  /// User dismissed the picker / consent.
+  canceled,
+  /// `GoogleSignInException.clientConfigurationError` — Android OAuth client
+  /// in GCP doesn't match the running APK's (package + SHA-1). Operator-side
+  /// fix: add the release-key SHA-1 to the Android OAuth client in
+  /// APIs & Services → Credentials. The most common cause of "picker opens,
+  /// picks account, nothing happens."
+  signInClientConfigError,
+  /// Anything else thrown by sign-in itself (network, Play Services, etc.).
+  signInFailed,
+  /// Sign-in succeeded but requesting the scope threw.
+  authorizationFailed,
+  /// The platform/google_sign_in build does NOT support interactive
+  /// authenticate() (desktop, web without a button widget, etc.).
+  platformUnsupported,
+}
+
+/// Bundles a [ConnectOutcome] with the underlying diagnostic detail so the UI
+/// can show a one-line snackbar AND offer a "details" affordance for support.
+class ConnectResult {
+  final ConnectOutcome outcome;
+  /// Free-form diagnostic string — e.g. the `GoogleSignInException.code` name
+  /// + description. Null for non-error outcomes.
+  final String? detail;
+  const ConnectResult(this.outcome, {this.detail});
+}
