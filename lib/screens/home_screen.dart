@@ -772,7 +772,7 @@ class _AccountButton extends StatelessWidget {
           return IconButton(
             tooltip: 'Sign in with Google',
             icon: const Icon(Icons.account_circle_outlined),
-            onPressed: () => service.connect(),
+            onPressed: () => _runConnect(context),
           );
         }
         return PopupMenuButton<String>(
@@ -783,7 +783,7 @@ class _AccountButton extends StatelessWidget {
           onSelected: (v) async {
             switch (v) {
               case 'reauth':
-                await service.connect();
+                await _runConnect(context);
                 break;
               case 'disconnect':
                 await service.disconnect();
@@ -793,6 +793,134 @@ class _AccountButton extends StatelessWidget {
           itemBuilder: (ctx) => _accountMenuItems(ctx, conn),
         );
       },
+    );
+  }
+
+  Future<void> _runConnect(BuildContext context) async {
+    final result = await service.connect();
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    switch (result.outcome) {
+      case ConnectOutcome.signedInAndAuthorized:
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Signed in — Google Calendar connected.'),
+        ));
+        return;
+      case ConnectOutcome.signedInScopeDenied:
+        messenger.showSnackBar(const SnackBar(
+          content: Text(
+            'Signed in, but calendar access not granted. Tap your avatar → '
+            '"Grant calendar access" to retry.',
+          ),
+          duration: Duration(seconds: 5),
+        ));
+        return;
+      case ConnectOutcome.canceled:
+        // User dismissed the picker — no toast needed.
+        return;
+      case ConnectOutcome.platformUnsupported:
+        messenger.showSnackBar(const SnackBar(
+          content: Text("Google Sign-In isn't available on this platform."),
+        ));
+        return;
+      case ConnectOutcome.signInClientConfigError:
+        messenger.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 8),
+          content: const Text(
+            "Sign-in failed: this build's signing key isn't registered "
+            'with the developer\'s Google Cloud OAuth client. Ask the '
+            'developer to add this APK\'s SHA-1.',
+          ),
+          action: SnackBarAction(
+            label: 'Details',
+            onPressed: () => _showAuthErrorDialog(
+              context,
+              'Sign-in client configuration error',
+              result.detail,
+              gcpFix: true,
+            ),
+          ),
+        ));
+        return;
+      case ConnectOutcome.signInFailed:
+        messenger.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 6),
+          content: const Text(
+            "Sign-in failed. Check network / Play Services and try again.",
+          ),
+          action: SnackBarAction(
+            label: 'Details',
+            onPressed: () => _showAuthErrorDialog(
+              context,
+              'Sign-in failed',
+              result.detail,
+            ),
+          ),
+        ));
+        return;
+      case ConnectOutcome.authorizationFailed:
+        messenger.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 6),
+          content: const Text(
+            'Signed in, but Google Calendar access could not be granted.',
+          ),
+          action: SnackBarAction(
+            label: 'Details',
+            onPressed: () => _showAuthErrorDialog(
+              context,
+              'Calendar authorization failed',
+              result.detail,
+            ),
+          ),
+        ));
+        return;
+    }
+  }
+
+  void _showAuthErrorDialog(
+    BuildContext context,
+    String title,
+    String? detail, {
+    bool gcpFix = false,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (detail != null && detail.isNotEmpty)
+                SelectableText(detail)
+              else
+                const Text('No additional detail reported.'),
+              if (gcpFix) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Operator fix:',
+                  style: Theme.of(ctx).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                const SelectableText(
+                  'In Google Cloud Console → APIs & Services → Credentials, '
+                  "open the Android OAuth client for package "
+                  '"com.taskflowsync.taskflow_sync" and add this APK\'s '
+                  'release SHA-1 fingerprint. Then wait ~5 minutes for the '
+                  'change to propagate and retry sign-in.',
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
