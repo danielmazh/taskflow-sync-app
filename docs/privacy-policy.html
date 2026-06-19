@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>Privacy Policy — TaskFlow Sync</h1>
-  <p class="meta">Effective date: 2026-06-14 · Last updated: 2026-06-14</p>
+  <p class="meta">Effective date: 2026-06-14 · Last updated: 2026-06-19</p>
 
   <p>TaskFlow Sync ("the app") is an offline-first Android task manager. This policy explains what
   data the app accesses, how it is used, and how to revoke access.</p>
@@ -38,7 +38,31 @@
         secure storage provided by Google Sign-In.</li>
   </ul>
 
-  <h2>3. What we do NOT do</h2>
+  <h2>3. How we protect your data</h2>
+  <p>We apply the following measures to protect your data, including the sensitive Google Calendar
+  data accessed under the <code>calendar.events</code> scope:</p>
+  <ul>
+    <li><strong>Encryption in transit.</strong> All communication between the app and Google's APIs
+        occurs over encrypted HTTPS/TLS connections. Calendar data is never transmitted over an
+        unencrypted channel.</li>
+    <li><strong>Secure credential storage.</strong> OAuth access and refresh tokens are stored only
+        on your device, in the platform secure storage provided by Google Sign-In, and are never
+        transmitted to or stored on any server we operate.</li>
+    <li><strong>Data minimization.</strong> The app requests the narrowest scope required
+        (<code>calendar.events</code> rather than full calendar access) and only ever creates,
+        updates, or deletes calendar events that correspond to tasks you have explicitly chosen to
+        sync. It does not read, store, or process any other calendar data.</li>
+    <li><strong>No server-side storage.</strong> The app has no backend. Your sensitive data
+        (Google account identity and calendar events) is not collected, logged, or retained on any
+        server we control; it remains between your device and Google's own services.</li>
+    <li><strong>On-device data at rest.</strong> Task data is stored locally on your device and is
+        protected by the device's own operating-system sandboxing and storage protections.</li>
+    <li><strong>Revocation and deletion.</strong> You can revoke the app's access to your Google
+        data at any time (see the section below), which immediately ends all access to your
+        sensitive data.</li>
+  </ul>
+
+  <h2>4. What we do NOT do</h2>
   <ul>
     <li>We do not sell your data.</li>
     <li>We do not share your data with third parties for advertising or analytics.</li>
@@ -47,7 +71,7 @@
         AI or machine-learning models.</li>
   </ul>
 
-  <h2>4. Permissions on Android</h2>
+  <h2>5. Permissions on Android</h2>
   <ul>
     <li><strong>POST_NOTIFICATIONS</strong> — to show task reminders.</li>
     <li><strong>SCHEDULE_EXACT_ALARM</strong> — to fire reminders at the exact time you set.</li>
@@ -56,7 +80,7 @@
     <li><strong>INTERNET</strong> (only when you opt into Google Calendar sync).</li>
   </ul>
 
-  <h2>5. Revoking access &amp; deleting your data</h2>
+  <h2>6. Revoking access &amp; deleting your data</h2>
   <ul>
     <li>To revoke the app's access to your Google Account, visit
         <a href="https://myaccount.google.com/permissions">https://myaccount.google.com/permissions</a>
@@ -65,15 +89,15 @@
         Android Settings → Apps → TaskFlow Sync → Storage.</li>
   </ul>
 
-  <h2>6. Children</h2>
+  <h2>7. Children</h2>
   <p>TaskFlow Sync is not directed to children under 13 and does not knowingly collect data from
   them.</p>
 
-  <h2>7. Changes to this policy</h2>
+  <h2>8. Changes to this policy</h2>
   <p>If we change this policy, the new version will be posted at this URL with a new "Last updated"
   date.</p>
 
-  <h2>8. Contact</h2>
+  <h2>9. Contact</h2>
   <p>Questions or requests: <a href="mailto:daniel.mazhbits@gmail.com">daniel.mazhbits@gmail.com</a></p>
 </body>
 </html>
