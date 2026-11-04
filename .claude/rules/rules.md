@@ -48,7 +48,7 @@ Anything not on this list = Tier B halt. Do not add packages "for convenience."
 - Teardown is `rm -rf .tools/`. Keep `.tools/` gitignored.
 
 ## Git workflow (branches & remote) — applies to ALL agents
-- Remote `origin` = `https://github.com/danielmazh/taskflow-sync-app.git`. Commit/push as the collaborator account `cr-DanielMazhbits`.
+- Remote `origin` = `https://github.com/danielmazh/taskflow-sync-app.git`. Commit/push as the collaborator account `<collaborator-account>`.
 - **Branch model:**
   - `master` — production baseline. **Never commit directly.** Only receives merges from `pre-master` at production milestones.
   - `pre-master` — integration trunk, cut from `master`. Acts as master until production. All feature branches branch from it and merge back into it. **No direct commits except merges.**

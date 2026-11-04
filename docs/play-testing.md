@@ -24,7 +24,7 @@ Console path: **Play Console → All apps → TaskFlow Sync → Testing → Clos
 | Track name | `closed-12` |
 | Testing method | **Closed testing** |
 | Tester list type | **Google Groups** (recommended — easier to manage than email-by-email; also accepts a list of emails) |
-| Feedback URL or email | `daniel.mazhbits@gmail.com` |
+| Feedback URL or email | `<support-email>` |
 | Countries / regions | Same set you plan to launch in for Production |
 
 ---

@@ -1,6 +1,6 @@
 # 021 — Git workflow: master / pre-master / feature branches
 
-2026-06-14. Remote `origin` = github.com/danielmazh/taskflow-sync-app (push as collaborator `cr-DanielMazhbits`; repo started empty).
+2026-06-14. Remote `origin` = github.com/danielmazh/taskflow-sync-app (push as collaborator `<collaborator-account>`; repo started empty).
 
 Branch model (see rules.md "Git workflow"):
 - `master` = production baseline; merge-only, receives `pre-master` at production milestones.

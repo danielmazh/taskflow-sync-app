@@ -29,7 +29,7 @@ A single ordered list of **every human click** the operator must perform. Each s
 
 ### R0.4 🟢 👤 Verify domain ownership in Google Search Console
 - https://search.google.com/search-console → Add property → choose **Domain** (DNS TXT, preferred) or **URL prefix** (HTML file).
-- Use the **same Google Account** that owns the Cloud project `taskflow-sync-499408`.
+- Use the **same Google Account** that owns the Cloud project `<gcp-project-id>`.
 - Wait until Search Console shows "Ownership verified" (DNS can take up to 24h).
 
 ---
@@ -37,7 +37,7 @@ A single ordered list of **every human click** the operator must perform. Each s
 ## Phase R1 — Cloud project state fixes (operator console)
 
 ### R1.1 ⛔ 👤 Enable Calendar API
-- **BLOCKER** — verified read-only that `calendar.googleapis.com` is **not enabled** in project `taskflow-sync-499408`. Phase 4 cannot work without this.
+- **BLOCKER** - verified read-only that `calendar.googleapis.com` is **not enabled** in project `<gcp-project-id>`. Phase 4 cannot work without this.
 - Console: APIs &amp; Services → Library → search "Google Calendar API" → **Enable**.
 
 ### R1.2 ⛔ 👤 (Optional but recommended) Enable IAM API + Cloud Resource Manager API
