@@ -31,7 +31,7 @@ Target length: 60–120 seconds. Unlisted YouTube link. Show the literal OAuth f
 
 | # | Shot | What to say (voice or captions) |
 |---|---|---|
-| 1 | **Cloud Console OAuth client page**, mouse cursor over the client ID, then zoom on URL bar showing `taskflow-sync-499408`. | "This is OAuth client `…2hgq407fd6pp5elmov50kgqsi53a8jiu` in project `taskflow-sync-499408`, the project being verified." |
+| 1 | **Cloud Console OAuth client page**, mouse cursor over the client ID, then zoom on URL bar showing `<gcp-project-id>`. | "This is OAuth client `…2hgq407fd6pp5elmov50kgqsi53a8jiu` in project `<gcp-project-id>`, the project being verified." |
 | 2 | App home screen on Android device. | "TaskFlow Sync, a task manager. The app works fully offline by default." |
 | 3 | Tap **Settings → Sync with Google Calendar → Sign in**. | "The user chooses to enable Google Calendar sync. They tap Sign in." |
 | 4 | Google account chooser, then consent screen. **Pause on consent screen.** Zoom on the requested-permission line ("See, edit, share, and permanently delete all the calendars you can access using Google Calendar" wording variant for `calendar.events`). | "The user grants the single scope `calendar.events`. No other scopes are requested." |

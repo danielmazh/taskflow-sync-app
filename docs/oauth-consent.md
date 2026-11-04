@@ -1,6 +1,6 @@
 # OAuth Consent Screen — copy-paste sheet
 
-Console path: **Google Cloud Console → APIs &amp; Services → OAuth consent screen** (project `taskflow-sync-499408`, number `552734224992`).
+Console path: **Google Cloud Console → APIs &amp; Services → OAuth consent screen** (project `<gcp-project-id>`, number `<gcp-project-number>`).
 
 > Note: the Cloud Console UI was reorganized in 2025 into **Branding**, **Audience**, **Data Access**, **Clients**. The OAuth consent screen content is now split across the first three. There is no public API for any of this — every step below is a manual click.
 
@@ -11,13 +11,13 @@ Console path: **Google Cloud Console → APIs &amp; Services → OAuth consent s
 | Field | Value |
 |---|---|
 | App name | `TaskFlow Sync` |
-| User support email | `daniel.mazhbits@gmail.com` |
+| User support email | `<support-email>` |
 | App logo | 120×120 PNG, square, non-transparent (BLOCKED — operator to supply) |
 | Application home page | `https://taskflowsync.xyz/` — e.g. `https://taskflow-sync.example.com/` |
 | Application privacy policy link | `https://taskflowsync.xyz/privacy-policy.html` — e.g. `https://taskflow-sync.example.com/privacy-policy.html` |
 | Application terms of service link | *(optional — leave blank for v1)* |
 | Authorized domains | `github.io` — e.g. `taskflow-sync.example.com` (top-level only, no scheme, no path) |
-| Developer contact email(s) | `daniel.mazhbits@gmail.com` |
+| Developer contact email(s) | `<support-email>` |
 
 ---
 
